@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Humans vs Zombies</title>
+<meta property="og:title" content="Humans vs Zombies">
+<meta property="og:description" content="Город подписчиков после конца света: выбери сторону - люди или зомби">
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#bfc0b6;font-family:Georgia,"Times New Roman",serif;color:#2a2118;-webkit-text-size-adjust:100%}
+  canvas{position:fixed;inset:0;display:block;touch-action:none}
+  .card{position:fixed;left:10px;right:10px;background:rgba(253,246,228,.93);border:1.5px solid #8a6a3c;border-radius:14px;box-shadow:0 4px 16px rgba(50,30,10,.22)}
+  #top{top:10px;padding:9px 13px}
+  #top h1{margin:0;font-size:17px;letter-spacing:.2px}
+  #score{display:flex;gap:8px;margin-top:6px}
+  .side{flex:1;border-radius:10px;padding:5px 9px;font-size:12.5px;line-height:1.2}
+  .side b{display:block;font-size:19px}
+  .side.h{background:#e3ecd2;color:#2f5a2a;border:1px solid #9cbf7f}
+  .side.z{background:#e5e8cc;color:#4d5e1c;border:1px dashed #8fa045}
+  #battle{font-size:13px;margin-top:6px;padding-top:5px;border-top:1px dotted #b59a6a;color:#7a3a22}
+  #bottom{bottom:10px;padding:9px 11px}
+  .row{display:flex;gap:7px;align-items:center}
+  .row+.row{margin-top:7px}
+  button{font:600 14px Georgia,serif;padding:10px 8px;border:0;border-radius:10px;color:#fff6e4;white-space:nowrap;flex:1}
+  .bh{background:#4a7a3c}.bz{background:#6f7d28}.bb{background:#7a3f22}.bn{background:#efe3c4;color:#3a2a18;border:1px solid #b8955a;flex:0 0 48px}
+  #sheet{position:fixed;left:10px;right:10px;bottom:10px;background:#fdf6e4;border:2px solid #7a3f22;border-radius:14px;padding:12px 14px;display:none;box-shadow:0 8px 30px rgba(0,0,0,.35);z-index:9}
+  #sheet h2{margin:0 0 4px;font-size:17px}
+  #sheet p{margin:0 0 8px;font-size:13px;color:#5c4526;line-height:1.35}
+  #sheet label{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:14px;margin:7px 0}
+  #sheet input{font:16px Georgia,serif;width:120px;padding:7px 9px;border:1.5px solid #8a6a3c;border-radius:9px;background:#fffaf0}
+  #pop{position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);background:#fdf6e4;border:2px solid #8a6a3c;border-radius:14px;padding:10px 16px;font-size:15px;display:none;box-shadow:0 6px 24px rgba(0,0,0,.3);text-align:center;pointer-events:none;max-width:80vw;z-index:10}
+  #load{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#bfc0b6;font-size:17px;color:#3a2a18;transition:opacity .6s;z-index:20}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="top" class="card">
+  <h1>Humans vs Zombies</h1>
+  <div id="score">
+    <div class="side h">🧑 Люди<b id="nh">0</b></div>
+    <div class="side z">🧟 Зомби<b id="nz">0</b></div>
+  </div>
+  <div id="battle">…</div>
+</div>
+<div id="bottom" class="card">
+  <div class="row">
+    <button class="bh" id="addH">+50 «человек»</button>
+    <button class="bz" id="addZ">+50 «зомби»</button>
+    <button class="bn" id="dn">🌙</button>
+    <button class="bn" id="nmBtn" style="font-size:12px">Ники</button>
+  </div>
+  <div class="row"><button class="bb" id="openB">⚔️ Битва</button></div>
+</div>
+<div id="sheet">
+  <h2>⚔️ День битвы</h2>
+  <p>«заражаю человека» засчитывается только от зомби, «вылечил зомби» только от людей. Один комментарий от одного подписчика. Кого заразили и кого вылечили, выбирается случайно.</p>
+  <label>Дата битвы <input id="bdate" type="date"></label>
+  <label>«заражаю человека» <input id="ninf" type="number" min="0" value="60" inputmode="numeric"></label>
+  <label>«вылечил зомби» <input id="ncur" type="number" min="0" value="40" inputmode="numeric"></label>
+  <div class="row" style="margin-top:10px">
+    <button class="bn" id="closeB" style="flex:1">Отмена</button>
+    <button class="bb" id="fight">Провести битву</button>
+  </div>
+</div>
+<div id="pop"></div>
+<div id="load">Над руинами стелется туман…</div>
+
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
+
+// ================= helpers =================
+function rng(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+let R=rng(9001);
+const rr=(a,b)=>a+(b-a)*R(), pick=a=>a[Math.floor(R()*a.length)];
+const vnoise=(x,z)=>Math.sin(x*.021+1.3)*Math.cos(z*.017-.7)*.5+Math.sin(x*.053-z*.041+2.1)*.3+Math.sin(x*.11+z*.09)*.2;
+const col=c=>new THREE.Color(c);
+const _q=new THREE.Quaternion(), _e=new THREE.Euler(), _p=new THREE.Vector3(), _s=new THREE.Vector3();
+function M4(x,y,z,rx=0,ry=0,rz=0,s=1,out=new THREE.Matrix4()){ _e.set(rx,ry,rz,"YXZ"); _q.setFromEuler(_e); if(typeof s==="number") _s.set(s,s,s); else _s.set(s[0],s[1],s[2]); return out.compose(_p.set(x,y,z),_q,_s); }
+const TMP=new THREE.Matrix4();
+
+// ================= models (KayKit packs, CC0, kaylousberg.com) =================
+const PACK=await (await fetch("assets/models.json")).json();
+const BIN=await (await fetch("assets/models.bin")).arrayBuffer();
+const VB=new Float32Array(BIN,0,PACK.vbytes/4), IB=new Uint32Array(BIN,PACK.vbytes);
+const texLoader=new THREE.TextureLoader();
+const MATS=(await Promise.all([0,1,2].map(i=>texLoader.loadAsync(`assets/tex${i}.png`)))).map(t=>{ t.flipY=false; t.colorSpace=THREE.SRGBColorSpace; return new THREE.MeshLambertMaterial({map:t}); });
+const geoCache={};
+function geo(n){ if(geoCache[n]) return geoCache[n]; const m=PACK.models[n]; if(!m) throw new Error("no model "+n);
+  const ib=new THREE.InterleavedBuffer(VB.subarray(m.v[0]*8,(m.v[0]+m.v[1])*8),8), g=new THREE.BufferGeometry();
+  g.setAttribute("position",new THREE.InterleavedBufferAttribute(ib,3,0)); g.setAttribute("normal",new THREE.InterleavedBufferAttribute(ib,3,3)); g.setAttribute("uv",new THREE.InterleavedBufferAttribute(ib,2,6));
+  g.setIndex(new THREE.BufferAttribute(IB.subarray(m.i[0],m.i[0]+m.i[1]),1)); return geoCache[n]=g; }
+const matOf=n=>MATS[PACK.models[n].tex];
+
+// ================= layout =================
+const riverX=z=>40+20*Math.sin(z/45);
+const RIVER_Z0=-330, RIVER_Z1=132;
+const riverW=z=>8+Math.max(0,z-60)/72*8;
+const LAKE={x:48,z:178,r:52};
+const HC=new THREE.Vector2(-108,0), ZC=new THREE.Vector2(189,0);
+const ST=30, GRID=10;
+const inRiver=(x,z,m=0)=>z>RIVER_Z0-5&&z<RIVER_Z1+5&&Math.abs(x-riverX(z))<riverW(z)/2+m;
+const inLake=(x,z,m=0)=>Math.hypot(x-LAKE.x,z-LAKE.z)<LAKE.r+m;
+const WA=5, unwarp=(x,z)=>[x-WA*Math.sin(z/31), z-WA*Math.sin((x-40)/37)];
+const onStreet=(X,Z,m=0)=>{ const x=X+WA*Math.sin(Z/31), z=Z+WA*Math.sin((X-40)/37); const ax=Math.abs(((x%ST)+ST+ST/2)%ST-ST/2), az=Math.abs(((z%ST)+ST+ST/2)%ST-ST/2); return ax<3+m||az<3+m; };
+const inCity=(x,z)=>z>-240&&Math.hypot((x-40)*.95,z)<345;
+const terrainH=(x,z)=>{ let h=0; const d=Math.hypot((x-40)*.95,z); if(d>360) h+=Math.min(1,(d-360)/80)*(vnoise(x*1.3,z*1.3)*.5+.5)*9; if(z<-220) h+=Math.max(0,-220-z)*.13*(vnoise(x,z)*.3+.7); if(inRiver(x,z,1)||inLake(x,z,1)) h=-.8; return h; };
+const dH=(x,z)=>Math.hypot(x-HC.x,z-HC.y), dZ=(x,z)=>Math.hypot(x-ZC.x,z-ZC.y);
+
+// ================= renderer =================
+const canvas=document.getElementById("c");
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+const scene=new THREE.Scene();
+const SKY_D=col(0xc9d6d2), SKY_N=col(0x141a2a);
+scene.background=SKY_D.clone(); scene.fog=new THREE.Fog(SKY_D.clone(),260,1050);
+const camera=new THREE.PerspectiveCamera(40,innerWidth/innerHeight,1,3000);
+camera.position.set(-330,230,60);
+const controls=new OrbitControls(camera,canvas);
+controls.enableDamping=true; controls.dampingFactor=.08; controls.maxPolarAngle=1.28; controls.minDistance=14; controls.maxDistance=720; controls.screenSpacePanning=false;
+controls.target.set(40,0,-4);
+controls.touches={ONE:THREE.TOUCH.PAN,TWO:THREE.TOUCH.DOLLY_ROTATE};
+controls.mouseButtons={LEFT:THREE.MOUSE.PAN,MIDDLE:THREE.MOUSE.DOLLY,RIGHT:THREE.MOUSE.ROTATE};
+controls.panSpeed=1.1;
+const hemi=new THREE.HemisphereLight(0xf4efe0,0x5d5a48,.85); scene.add(hemi);
+const sun=new THREE.DirectionalLight(0xfff0d8,1.95); sun.position.set(-160,260,120); scene.add(sun); scene.add(sun.target);
+sun.castShadow=true; sun.shadow.mapSize.set(2048,2048); sun.shadow.bias=-.0004; sun.shadow.normalBias=.5;
+
+function softTex(inner,outer){ const c=document.createElement("canvas"); c.width=c.height=64; const x=c.getContext("2d"); const g=x.createRadialGradient(32,32,0,32,32,32); g.addColorStop(0,inner); g.addColorStop(1,outer); x.fillStyle=g; x.fillRect(0,0,64,64); return new THREE.CanvasTexture(c); }
+const smokeTex=softTex("rgba(255,255,255,1)","rgba(255,255,255,0)");
+
+// instanced helper
+function inst(name,n,{shadow=true,receive=false,material=null}={}){ const m=new THREE.InstancedMesh(geo(name),material||matOf(name),Math.max(1,n)); m.count=0; m.castShadow=shadow; m.receiveShadow=receive; m.frustumCulled=false; scene.add(m); return m; }
+function put(mesh,matrix,color){ const i=mesh.count++; mesh.setMatrixAt(i,matrix); if(color) mesh.setColorAt(i,color); return i; }
+function flush(...ms){ for(const m of ms){ m.instanceMatrix.needsUpdate=true; if(m.instanceColor) m.instanceColor.needsUpdate=true; } }
+function single(name,m,{shadow=true}={}){ const o=new THREE.Mesh(geo(name),matOf(name)); o.applyMatrix4(m); o.castShadow=shadow; o.receiveShadow=true; scene.add(o); return o; }
+
+// ================= ground =================
+const ground=new THREE.PlaneGeometry(1500,1500,230,230); ground.rotateX(-Math.PI/2);
+const gp=ground.attributes.position, GN=gp.count, gBase=new Float32Array(GN*3), gCol=new Float32Array(GN*3), gX=new Float32Array(GN), gZ=new Float32Array(GN), gRoad=new Uint8Array(GN);
+{
+  const d1=col(0x9a9468), d2=col(0x857f5a), sand=col(0xc9b88a), road=col(0xb89f78), c=new THREE.Color();
+  for(let i=0;i<GN;i++){ const x=gp.getX(i), z=gp.getZ(i); gX[i]=x; gZ[i]=z; const n=vnoise(x*1.5,z*1.5)*.5+.5;
+    c.copy(d1).lerp(d2,n);
+    if(inCity(x,z)&&onStreet(x,z,-.3)){ c.copy(road).offsetHSL(0,0,(n-.5)*.06); gRoad[i]=1; }
+    if(inRiver(x,z,4)||inLake(x,z,6)) c.copy(sand);
+    gp.setY(i,terrainH(x,z)); gBase.set([c.r,c.g,c.b],i*3); }
+  ground.setAttribute("color",new THREE.BufferAttribute(gCol,3)); ground.computeVertexNormals();
+  const gm=new THREE.Mesh(ground,new THREE.MeshLambertMaterial({vertexColors:true})); gm.receiveShadow=true; scene.add(gm);
+}
+const GREEN=col(0x8fcf4f), TOXIC=col(0x6a7a2c);
+function paintGround(rh,rz){
+  for(let i=0;i<GN;i++){ const x=gX[i],z=gZ[i]; let r=gBase[i*3],g=gBase[i*3+1],b=gBase[i*3+2];
+    if(!(inRiver(x,z,4)||inLake(x,z,6))){ const k1=Math.max(0,Math.min(1,(rh+8-dH(x,z))/20))*(gRoad[i]?.15:.85), k2=Math.max(0,Math.min(1,(rz+8-dZ(x,z))/20))*(gRoad[i]?.2:.65);
+      r+=(GREEN.r-r)*k1; g+=(GREEN.g-g)*k1; b+=(GREEN.b-b)*k1; r+=(TOXIC.r-r)*k2; g+=(TOXIC.g-g)*k2; b+=(TOXIC.b-b)*k2; }
+    gCol[i*3]=r; gCol[i*3+1]=g; gCol[i*3+2]=b; }
+  ground.attributes.color.needsUpdate=true;
+}
+
+// ================= water =================
+const waterU=THREE.UniformsUtils.merge([THREE.UniformsLib.fog,{t:{value:0},night:{value:0}}]);
+const waterMat=new THREE.ShaderMaterial({uniforms:waterU,fog:true,
+  vertexShader:`varying vec2 vXZ;
+#include <fog_pars_vertex>
+    void main(){ vec4 w=modelMatrix*vec4(position,1.); vXZ=w.xz; vec4 mvPosition=viewMatrix*w; gl_Position=projectionMatrix*mvPosition;
+#include <fog_vertex>
+    }`,
+  fragmentShader:`uniform float t,night; varying vec2 vXZ;
+#include <fog_pars_fragment>
+    void main(){ float r=sin(vXZ.x*.32+t*1.1)*sin(vXZ.y*.27-t*.8)+.6*sin(vXZ.x*.11-vXZ.y*.17+t*.5);
+      vec3 deep=vec3(.22,.52,.74), light=vec3(.55,.8,.95);
+      vec3 c=mix(deep,light,smoothstep(.5,1.3,r)*.7); c=mix(c,vec3(.97),smoothstep(1.32,1.5,r)*.55);
+      c=mix(c, c*vec3(.25,.3,.5), night);
+      gl_FragColor=vec4(c,1.);
+#include <fog_fragment>
+    }`});
+{
+  const N=260,v=[],idx=[];
+  for(let i=0;i<=N;i++){ const z=RIVER_Z0+(RIVER_Z1-RIVER_Z0)*i/N,x=riverX(z),w=riverW(z)/2; v.push(x-w,.05,z,x+w,.05,z); if(i<N){const a=i*2; idx.push(a,a+2,a+1,a+1,a+2,a+3);} }
+  const g=new THREE.BufferGeometry(); g.setAttribute("position",new THREE.Float32BufferAttribute(v,3)); g.setIndex(idx);
+  scene.add(new THREE.Mesh(g,waterMat));
+  const lake=new THREE.Mesh(new THREE.CircleGeometry(LAKE.r,56),waterMat); lake.rotation.x=-Math.PI/2; lake.position.set(LAKE.x,.06,LAKE.z); scene.add(lake);
+}
+
+// ================= house slots =================
+R=rng(77);
+const COLORS=["blue","green","red","yellow"];
+const ROOF_C=[col(0x3f86dc),col(0x2f9f5a),col(0xd8433c),col(0xf0a52c)];
+const RUINS=[["destroyed",.68],["destroyed",.68],["destroyed",.6],["stage_B",.85],["stage_C",.85]];
+const slots=[];
+for(let gx=-38;gx<=42;gx++) for(let gz=-25;gz<=25;gz++){
+  if(((gx%3)+3)%3===0||((gz%3)+3)%3===0) continue;
+  const [x,z]=unwarp(gx*GRID+rr(-.6,.6),gz*GRID+rr(-.6,.6));
+  if(!inCity(x,z)||inRiver(x,z,8)||inLake(x,z,9)) continue;
+  if(dH(x,z)<24||dZ(x,z)<30) continue;
+  const side=x<riverX(z)?"h":"z", c=side==="h"?HC:ZC;
+  const yaw=(((gz%3)+3)%3===1?Math.PI:0)+rr(-.18,.18);
+  const B=R()<.4, ci=Math.floor(R()*4), ru=pick(RUINS), sc=rr(.92,1.06);
+  const s={x,z,side,yaw,B,ci,h:B?8.3:6,key:`home_${B?"B":"A"}_${COLORS[ci]}`,ruin:ru[0],seed:R(),k:Math.hypot(x-c.x,z-c.y)+vnoise(x*3,z*3)*12+rr(-3,3),owner:null,state:"r"};
+  s.mH=M4(x,0,z,0,yaw,0,sc); s.mZ=M4(x,-.15,z,rr(-.04,.04),yaw,rr(-.07,.07),sc); s.mR=M4(x,0,z,0,yaw+Math.floor(R()*4)*Math.PI/2,0,ru[1]*rr(.9,1.1));
+  s.mF=M4(x,0,z,0,yaw,0,[sc,B?1.35:1,sc]);
+  slots.push(s);
+}
+const hSlots=slots.filter(s=>s.side==="h").sort((a,b)=>a.k-b.k), zSlots=slots.filter(s=>s.side==="z").sort((a,b)=>a.k-b.k);
+
+// near (detailed) meshes
+const near={};
+for(const v of ["A","B"]) for(const c of COLORS){ const k=`home_${v}_${c}`, n=slots.filter(s=>s.key===k).length; near[k]=inst(k,n,{receive:true}); }
+for(const k of ["destroyed","stage_B","stage_C"]) near[k]=inst(k,slots.filter(s=>s.ruin===k).length,{receive:true});
+// far (light) meshes: body + roof + ruin lump
+const farBodyG=(()=>{ const g=new THREE.BoxGeometry(5,4.2,5.4); g.translate(0,2.1,0); return g; })();
+const farRoofG=(()=>{ const sh=new THREE.Shape(); sh.moveTo(-3.3,0); sh.lineTo(3.3,0); sh.lineTo(0,2.6); sh.lineTo(-3.3,0); const g=new THREE.ExtrudeGeometry(sh,{depth:6.2,bevelEnabled:false}); g.translate(0,3.9,-3.1); return g; })();
+const farRuinG=(()=>{ const g=new THREE.BoxGeometry(5.5,2.2,5); g.translate(0,1.1,0); return g; })();
+const mkFar=(g,c)=>{ const m=new THREE.InstancedMesh(g,new THREE.MeshLambertMaterial({color:c}),slots.length); m.count=0; m.frustumCulled=false; m.castShadow=true; scene.add(m); return m; };
+const farBody=mkFar(farBodyG,0xffffff), farRoof=mkFar(farRoofG,0xffffff), farRuin=mkFar(farRuinG,0x8f8c84);
+const PICKABLE=[...Object.values(near),farBody,farRuin];
+for(const m of [...PICKABLE,farRoof]) m.userData.arr=[];
+// zombie overgrowth + human yard props (only near the camera)
+const zBushA=inst("Bush_2_A",1600,{shadow:false}), zBushB=inst("Bush_4_A",1600,{shadow:false});
+const yBarrel=inst("barrel",300), yCrate=inst("crate_A_big",300), ySack=inst("sack",300,{shadow:false}), yLumber=inst("resource_lumber",200);
+const WHITE=col(0xffffff), TINT_Z=col(0xb4d68a), TINT_ZB=new THREE.Color(.7,1,.45), WALL_C=col(0xf1e6cf), WALL_Z=col(0xb9c79a);
+const LOD_NEAR=150;
+let housesDirty=true, lodCam=new THREE.Vector3(1e9,0,0), lodNext=0;
+const _c=new THREE.Color(), _lv=new THREE.Vector3();
+function rebuildHouses(){
+  const all=[...PICKABLE,farRoof,zBushA,zBushB,yBarrel,yCrate,ySack,yLumber];
+  for(const m of all){ m.count=0; if(m.userData.arr) m.userData.arr.length=0; }
+  const cp=camera.position;
+  for(const s of slots){
+    const isNear=Math.hypot(s.x-cp.x,s.z-cp.z,cp.y)<LOD_NEAR;
+    if(isNear){
+      if(s.state==="r"){ const m=near[s.ruin]; m.userData.arr.push(s); put(m,s.mR,WHITE); }
+      else { const m=near[s.key]; m.userData.arr.push(s); put(m,s.state==="h"?s.mH:s.mZ,s.state==="h"?WHITE:TINT_Z);
+        const sd=rng(Math.floor(s.seed*1e6)), q=(a,b)=>a+(b-a)*sd(), cy=Math.cos(s.yaw), sy=Math.sin(s.yaw), at=(lx,lz)=>[s.x+lx*cy+lz*sy, s.z-lx*sy+lz*cy];
+        if(s.state==="z"){ for(let k=0;k<4;k++){ const roof=k>2, [bx,bz]=roof?at(q(-1.8,1.8),q(-1.5,1.5)):at((k===0?-1:1)*q(2.4,3.1),q(-2.6,2.6)); put(k%2?zBushA:zBushB,M4(bx,roof?s.h*q(.62,.86):0,bz,0,q(0,6),0,roof?q(.8,1.2):q(1,1.6),TMP),TINT_ZB); } }
+        else { const [px,pz]=at(3.5,q(-2,2)); const t=sd(); if(t<.3) put(yBarrel,M4(px,0,pz,0,q(0,6),0,1,TMP)); else if(t<.55) put(yCrate,M4(px,0,pz,0,q(0,6),0,1,TMP)); else if(t<.7) put(ySack,M4(px,0,pz,0,q(0,6),0,1.5,TMP)); else if(t<.82) put(yLumber,M4(px,0,pz,0,s.yaw+1.57,0,.9,TMP)); }
+      }
+    } else if(s.state==="r"){ farRuin.userData.arr.push(s); put(farRuin,s.mR); }
+    else { const z=s.state==="z"; farBody.userData.arr.push(s); put(farBody,z?s.mZ:s.mF,z?WALL_Z:WALL_C); put(farRoof,z?s.mZ:s.mF,z?_c.copy(ROOF_C[s.ci]).multiply(TINT_Z):ROOF_C[s.ci]); }
+  }
+  flush(...all); lodCam.copy(cp); housesDirty=false;
+}
+function setState(s,st){ s.state=st; housesDirty=true; }
+
+// ================= mountains =================
+{
+  R=rng(5);
+  const mm=[inst("mountain_A",40,{shadow:false}),inst("mountain_B",40,{shadow:false}),inst("mountain_C",40,{shadow:false})];
+  const add=(x,z,r,h)=>put(mm[Math.floor(R()*3)],M4(x,-2,z,0,R()*6.28,0,[r/5.2,h/10,r/5.2],TMP));
+  for(let i=0;i<30;i++) add(-620+i*43+rr(-15,15),rr(-470,-360),rr(55,100),rr(70,150));
+  for(let i=0;i<14;i++) add(-560+i*82+rr(-20,20),rr(-570,-510),rr(80,130),rr(130,210));
+  for(let i=0;i<9;i++){ add(rr(-720,-620),rr(-300,300),rr(55,85),rr(50,100)); add(rr(650,750),rr(-300,250),rr(55,85),rr(50,100)); }
+  flush(...mm);
+}
+
+// ================= forest =================
+R=rng(31);
+const FOREST=[["tree_single_A",1.25],["tree_single_B",1.2],["tree_dead_large",1.5],["Tree_Bare_1_A",1.3],["tree_dead_medium",1.6]];
+const forest=[]; const fCount=[0,0,0,0,0];
+for(let i=0;i<16000&&forest.length<3800;i++){
+  const x=rr(-640,700), z=rr(-360,540);
+  if(vnoise(x*1.7,z*1.7)<-.1&&R()<.8) continue;
+  if(inRiver(x,z,4)||inLake(x,z,5)||inCity(x,z)) continue;
+  const t=R()<.5?0:R()<.5?1:R()<.4?2:R()<.5?3:4; fCount[t]++;
+  forest.push({x,z,t,m:M4(x,terrainH(x,z)+.4,z,0,R()*6.28,0,FOREST[t][1]*rr(.8,1.4)),v:rr(.85,1.1)});
+}
+const forestM=FOREST.map(([n],i)=>inst(n,fCount[i],{shadow:false}));
+forest.forEach(f=>{ f.i=put(forestM[f.t],f.m); });
+// town trees (inside the city): green in the human camp, sickly at the zombies, dry elsewhere
+const TOWN=[["Tree_1_A",1],["Tree_2_A",1],["Tree_3_A",1],["Tree_4_A",.9],["Tree_Bare_2_A",1.1]];
+const town=[]; const tCount=[0,0,0,0,0];
+for(let i=0;i<9000&&town.length<340;i++){
+  const x=rr(-330,420), z=rr(-240,240);
+  if(!inCity(x,z)||inRiver(x,z,5)||inLake(x,z,6)||onStreet(x,z,1.5)||dH(x,z)<22||dZ(x,z)<28) continue;
+  const [ux,uz]=[x,z]; const gx=(ux+WA*Math.sin(uz/31))/GRID, gz=(uz+WA*Math.sin((ux-40)/37))/GRID;
+  if(Math.abs(gx-Math.round(gx))<.42&&Math.abs(gz-Math.round(gz))<.42) continue; // keep clear of house plots
+  const t=Math.floor(R()*5); tCount[t]++; town.push({x,z,t,m:M4(x,.4,z,0,R()*6.28,0,TOWN[t][1]*rr(.75,1.1))});
+}
+const townM=TOWN.map(([n],i)=>inst(n,tCount[i]));
+town.forEach(f=>{ f.i=put(townM[f.t],f.m); });
+// grass tufts + rocks
+R=rng(12);
+const tufts=[]; for(let i=0;i<9000&&tufts.length<1800;i++){ const x=rr(-330,420), z=rr(-240,240); if(!inCity(x,z)||inRiver(x,z,3)||inLake(x,z,4)) continue; if(onStreet(x,z,-1)&&R()<.9) continue; tufts.push({x,z,s:rr(.9,1.6),r:R()*6}); }
+const tuftM=inst("Grass_1_A",tufts.length,{shadow:false});
+tufts.forEach(t=>put(tuftM,M4(t.x,0,t.z,0,t.r,0,t.s,TMP)));
+{ const rk=[inst("rock_single_A",150,{shadow:false}),inst("rock_single_B",150,{shadow:false}),inst("rock_single_C",150)];
+  for(let i=0;i<420;i++){ const x=rr(-560,640), z=rr(-320,480); if(inRiver(x,z,2)||inLake(x,z,3)||(inCity(x,z)&&(onStreet(x,z,1)||R()<.6))) continue; const m=rk[Math.floor(R()*3)]; if(m.count<150) put(m,M4(x,terrainH(x,z),z,0,R()*6.28,0,rr(.8,2.2),TMP)); } flush(...rk); }
+const T_DRY=col(0xb9a47a), T_TOX=new THREE.Color(.8,1.15,.42), F_DRY=col(0xa9b08c);
+function paintNature(rh,rz){
+  for(const f of forest){ if(f.t>1) continue; const h=dH(f.x,f.z)-rh, z=dZ(f.x,f.z)-rz; _c.copy(h<60?WHITE:z<60?T_TOX:F_DRY).multiplyScalar(f.v); forestM[f.t].setColorAt(f.i,_c); }
+  for(const f of town){ if(f.t===4) continue; const h=dH(f.x,f.z)-rh, z=dZ(f.x,f.z)-rz; townM[f.t].setColorAt(f.i,h<4?WHITE:z<4?T_TOX:T_DRY); }
+  tufts.forEach((t,k)=>{ const h=dH(t.x,t.z)-rh, z=dZ(t.x,t.z)-rz; tuftM.setColorAt(k,h<0?WHITE:z<0?T_TOX:T_DRY); });
+  flush(...forestM,...townM,tuftM);
+}
+
+// ================= human camp =================
+const stakeG=(()=>{ const a=new THREE.CylinderGeometry(.35,.35,4.6,6); a.translate(0,2.3,0); return a; })();
+const stakeM=new THREE.InstancedMesh(stakeG,new THREE.MeshLambertMaterial({color:0x8a5f3a,flatShading:true}),900); stakeM.castShadow=true; stakeM.frustumCulled=false; scene.add(stakeM);
+const tipM=new THREE.InstancedMesh(new THREE.ConeGeometry(.35,.9,6).translate(0,5,0),new THREE.MeshLambertMaterial({color:0xa9794a,flatShading:true}),900); tipM.frustumCulled=false; scene.add(tipM);
+const towerM=inst("tower_A_blue",8);
+function buildPalisade(rh){
+  const r=rh+7; let n=0; R=rng(3);
+  for(let a=0;a<Math.PI*2;a+=.75/r){ const x=HC.x+Math.cos(a)*r, z=HC.y+Math.sin(a)*r;
+    if(onStreet(x,z,-.5)||inRiver(x,z,2)||inLake(x,z,2)||x>riverX(z)-4) continue; if(n>=900) break;
+    M4(x,0,z,rr(-.06,.06),R()*6,rr(-.06,.06),rr(.9,1.1),TMP); stakeM.setMatrixAt(n,TMP); tipM.setMatrixAt(n,TMP); n++; }
+  stakeM.count=tipM.count=n; flush(stakeM,tipM);
+  towerM.count=0; for(let k=0;k<8;k+=2){ const a=k/8*Math.PI*2+.6, x=HC.x+Math.cos(a)*(r+5), z=HC.y+Math.sin(a)*(r+5); if(x<riverX(z)-8) put(towerM,M4(x,0,z,0,-a,0,.75,TMP)); } flush(towerM);
+}
+single("church_red",M4(HC.x-6,0,HC.y-12,0,.25,0,1.7));
+single("market_green",M4(HC.x-15,0,HC.y+9,0,.9,0,1.05));
+single("well_blue",M4(HC.x+12,0,HC.y-9,0,0,0,1));
+single("windmill_red",M4(HC.x+16,0,HC.y+13,0,-.8,0,1.35));
+for(const [x,z,r] of [[-17,-3,.4],[-12,-22,1.2],[3,-21,2.2],[19,1,3]]) single("tent",M4(HC.x+x,0,HC.y+z,0,r,0,1.5));
+for(const [x,z] of [[-2,-4],[-1,-5.2],[4,13],[5.3,12.4],[-9,16]]) single(pick(["barrel","crate_A_big"]),M4(HC.x+x,0,HC.y+z,0,x,0,1.1));
+single("wheelbarrow",M4(HC.x+9,0,HC.y+16,0,1,0,1.2)); single("resource_lumber",M4(HC.x-3,0,HC.y+17,0,.4,0,1.2));
+{ // red cross sign by the church (it is the hospital)
+  const g=new THREE.Group(); const w=new THREE.MeshLambertMaterial({color:0xfaf7f0}), r=new THREE.MeshLambertMaterial({color:0xd8332a}), wd=new THREE.MeshLambertMaterial({color:0x7a5434});
+  const post=new THREE.Mesh(new THREE.BoxGeometry(.4,5,.4),wd); post.position.y=2.5; g.add(post);
+  const board=new THREE.Mesh(new THREE.BoxGeometry(3.2,3.2,.3),w); board.position.y=5.6; g.add(board);
+  const a=new THREE.Mesh(new THREE.BoxGeometry(2.2,.7,.4),r), b=new THREE.Mesh(new THREE.BoxGeometry(.7,2.2,.4),r); a.position.y=b.position.y=5.6; g.add(a,b);
+  g.traverse(o=>{o.castShadow=true}); g.position.set(HC.x+1.5,0,HC.y-4); g.rotation.y=.25; scene.add(g); }
+const fireGroup=new THREE.Group(); fireGroup.position.set(HC.x+4,0,HC.y+5); scene.add(fireGroup);
+{ const stones=new THREE.Mesh(new THREE.TorusGeometry(1.4,.35,5,10),new THREE.MeshLambertMaterial({color:0x6d6a62})); stones.rotation.x=Math.PI/2; stones.position.y=.3; fireGroup.add(stones);
+  for(let k=0;k<5;k++){ const a=k/5*6.28; const lg=new THREE.Mesh(geo("resource_lumber"),matOf("resource_lumber")); lg.scale.setScalar(.5); lg.rotation.y=-a; lg.position.set(Math.cos(a)*4,0,Math.sin(a)*4); lg.castShadow=true; fireGroup.add(lg); } }
+const flames=[]; for(let k=0;k<3;k++){ const f=new THREE.Mesh(new THREE.ConeGeometry(.8-k*.18,2.4-k*.4,6),new THREE.MeshBasicMaterial({color:[0xff7a1a,0xffa53a,0xffe08a][k]})); f.position.y=1.2+k*.1; fireGroup.add(f); flames.push(f); }
+const fireLight=new THREE.PointLight(0xff9a40,0,70,1.6); fireLight.position.set(0,4,0); fireGroup.add(fireLight);
+const embers=[]; for(let k=0;k<20;k++){ const s=new THREE.Sprite(new THREE.SpriteMaterial({map:smokeTex,color:0xffa040,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending})); s.scale.setScalar(.5); fireGroup.add(s); embers.push({s,t:Math.random()*2,x:0,z:0}); }
+{ const pole=new THREE.Mesh(new THREE.CylinderGeometry(.14,.14,14,6),new THREE.MeshLambertMaterial({color:0x7a5434})); pole.position.set(HC.x+9,7,HC.y-1); pole.castShadow=true; scene.add(pole); }
+const flag=new THREE.Mesh(new THREE.PlaneGeometry(5,3,10,1),new THREE.MeshLambertMaterial({color:0x35a853,side:THREE.DoubleSide})); flag.position.set(HC.x+11.6,12.4,HC.y-1); scene.add(flag);
+const flagBase=flag.geometry.attributes.position.array.slice();
+
+// ================= zombie camp: crypt + graveyard =================
+const pitLight=new THREE.PointLight(0x9cff40,0,90,1.6); pitLight.position.set(ZC.x,7,ZC.y+12); scene.add(pitLight);
+const STATIC_GLOW=[];
+{
+  R=rng(404);
+  single("crypt",M4(ZC.x,0,ZC.y-8,0,0,0,2.1));
+  single("arch_gate",M4(ZC.x,0,ZC.y+24,0,0,0,1.7));
+  STATIC_GLOW.push([ZC.x,6,ZC.y+2,.5,1,.2],[ZC.x-3,9,ZC.y+1,.5,1,.2],[ZC.x+3,9,ZC.y+1,.5,1,.2]);
+  const G=n=>inst(n,60);
+  const gr={grave_A:G("grave_A"),grave_B:G("grave_B"),grave_A_destroyed:G("grave_A_destroyed"),gravestone:G("gravestone"),gravemarker_A:G("gravemarker_A"),gravemarker_B:G("gravemarker_B"),coffin:G("coffin"),
+    fence:G("fence"),fence_broken:G("fence_broken"),fence_pillar:G("fence_pillar"),post_lantern:G("post_lantern"),post_skull:G("post_skull"),pumpkin:G("pumpkin_orange_jackolantern"),skull:G("skull"),
+    dead:G("tree_dead_large"),dead2:G("tree_dead_medium"),pineO:G("tree_pine_orange_large"),pineY:G("tree_pine_yellow_medium"),shrine:G("shrine_candles")};
+  const stones=["grave_A","grave_B","grave_A_destroyed","gravestone","gravestone","gravemarker_A","gravemarker_B"];
+  for(let ix=-4;ix<=4;ix++) for(let iz=0;iz<4;iz++){ if(ix===0) continue; if(R()<.15) continue; const x=ZC.x+ix*4.4+rr(-.5,.5), z=ZC.y+6+iz*4.4+rr(-.5,.5); put(gr[pick(stones)],M4(x,0,z,rr(-.08,.08),rr(-.25,.25),rr(-.12,.12),1.25,TMP)); }
+  put(gr.coffin,M4(ZC.x+9,0,ZC.y-2,0,.6,0,1.2,TMP)); put(gr.coffin,M4(ZC.x-10,0,ZC.y+1,0,-.9,.2,1.2,TMP));
+  // fence around the graveyard
+  const X0=ZC.x-21, X1=ZC.x+21, Z0=ZC.y-20, Z1=ZC.y+24, L=4.4*1.3;
+  const seg=(x,z,ry)=>put(R()<.3?gr.fence_broken:gr.fence,M4(x,0,z,0,ry,0,1.3,TMP));
+  for(let x=X0+L/2;x<X1;x+=L){ seg(x,Z0,0); if(Math.abs(x-ZC.x)>5) seg(x,Z1,0); }
+  for(let z=Z0+L/2;z<Z1;z+=L){ seg(X0,z,Math.PI/2); seg(X1,z,Math.PI/2); }
+  for(const [x,z] of [[X0,Z0],[X1,Z0],[X0,Z1],[X1,Z1]]) put(gr.fence_pillar,M4(x,0,z,0,0,0,1.6,TMP));
+  for(const [x,z,ry] of [[-4,22,0],[4,22,0],[-4,6,1.57],[4,6,-1.57],[-18,-6,0],[18,-6,3.14],[-18,14,0],[18,14,3.14]]){ put(R()<.5?gr.post_lantern:gr.post_skull,M4(ZC.x+x,0,ZC.y+z,0,ry,0,1.5,TMP)); STATIC_GLOW.push([ZC.x+x,4.5,ZC.y+z,.6,1,.25]); }
+  for(let k=0;k<12;k++){ const x=ZC.x+rr(-19,19), z=ZC.y+rr(-17,22); if(Math.abs(x-ZC.x)<8&&z<ZC.y+4) continue; put(gr.pumpkin,M4(x,0,z,0,R()*6,0,rr(.7,1.1),TMP)); if(k<6) put(gr.skull,M4(x+1.2,0,z+.6,0,R()*6,0,.8,TMP)); }
+  for(let k=0;k<14;k++){ const a=R()*6.28, r=rr(24,34), x=ZC.x+Math.cos(a)*r*1.0, z=ZC.y+2+Math.sin(a)*r; if(onStreet(x,z,1)) continue; put(pick([gr.dead,gr.dead2,gr.pineO,gr.pineY]),M4(x,.4,z,0,R()*6,0,rr(1.3,1.9),TMP)); }
+  put(gr.shrine,M4(ZC.x-14,0,ZC.y-12,0,.5,0,1.6,TMP)); put(gr.shrine,M4(ZC.x+14,0,ZC.y-12,0,-.5,0,1.6,TMP)); STATIC_GLOW.push([ZC.x-14,3,ZC.y-12,1,.8,.3],[ZC.x+14,3,ZC.y-12,1,.8,.3]);
+  flush(...Object.values(gr));
+}
+// bridge = front line
+{ const bx=riverX(0); single("bridge_A",M4(bx,-.35,0,0,Math.PI/2,0,[1,1,1.25]));
+  for(const [x,z] of [[-9,-2],[-9,0],[-9.5,2],[-10.4,-.8]]) single(pick(["barrel","crate_A_big"]),M4(bx+x,0,z,0,x,0,1.15));
+  for(const [x,z] of [[9.5,-2],[10,1.5]]) single("gravemarker_B",M4(bx+x,0,z,0,1.57,.2,1.6)); }
+
+// birds
+const birds=[];
+function addBirds(n,c,center,h,rad){ for(let k=0;k<n;k++){ const g=new THREE.Group(); const bm=new THREE.MeshLambertMaterial({color:c,side:THREE.DoubleSide}); g.add(new THREE.Mesh(new THREE.BoxGeometry(.5,.35,1.1),bm));
+  const wl=new THREE.Mesh(new THREE.PlaneGeometry(1.4,.6),bm), wr=wl.clone(); wl.position.x=-.7; wr.position.x=.7; wl.rotation.x=wr.rotation.x=-Math.PI/2; const pl=new THREE.Group(), pr=new THREE.Group(); pl.add(wl); pr.add(wr); g.add(pl,pr); scene.add(g);
+  birds.push({g,pl,pr,c:center,h:h+rr(-4,6),r:rad*rr(.4,1.1),a:R()*6.28,sp:rr(.25,.45)*(R()<.5?1:-1),ph:R()*6}); } }
+R=rng(88); addBirds(14,0x2a2a2e,ZC,34,30); addBirds(9,0xf2f0e8,HC,30,26);
+
+// ================= walkers: animated characters (Quaternius Zombie Apocalypse Kit, CC0) =================
+const CH={h:[],z:[]};
+{ const gl=new GLTFLoader();
+  const files=await Promise.all(["h1","h2","h3","h4","z1","z2","z3","z4"].map(k=>gl.loadAsync(`assets/${k}.glb`).then(g=>[k,g])));
+  for(const [k,g] of files){ let mat=null, hgt=.1; const bp=new THREE.Vector3(); g.scene.updateMatrixWorld(true); g.scene.traverse(o=>{ if(o.isBone) hgt=Math.max(hgt,o.getWorldPosition(bp).y); });
+    g.scene.traverse(o=>{ if(o.isMesh){ mat=mat||new THREE.MeshLambertMaterial({map:o.material.map}); o.material=mat; o.castShadow=true; o.frustumCulled=false; } });
+    CH[k[0]].push({scene:g.scene,clip:g.animations[0],scale:(k[0]==="z"?2.8:2.7)/hgt}); } }
+function figure(z){ const src=CH[z?"z":"h"][Math.floor(Math.random()*4)]; const g=SkeletonUtils.clone(src.scene); g.scale.setScalar(src.scale*(.92+Math.random()*.16));
+  const mixer=new THREE.AnimationMixer(g); mixer.clipAction(src.clip).play(); mixer.setTime(Math.random()*1.3); return {g,mixer}; }
+const walkers=[];
+function nodeOk(camp,x,z,rad){ const c=camp==="h"?HC:ZC; if(Math.hypot(x-c.x,z-c.y)>rad-3) return false; if(inRiver(x,z,5)||inLake(x,z,5)) return false; return camp==="h"? x<riverX(z)-6 : x>riverX(z)+6; }
+function spawnWalkers(){
+  const want={h:Math.min(28,Math.ceil(H_.length/6)),z:Math.min(28,Math.ceil(Z_.length/6))};
+  for(const camp of ["h","z"]){ const have=walkers.filter(w=>w.camp===camp);
+    while(have.length<want[camp]){ const f=figure(camp==="z"); const w={...f,camp,x:0,z:0,tx:0,tz:0,ph:Math.random()*6,sp:camp==="z"?1.5:3.4}; resetWalker(w); scene.add(f.g); walkers.push(w); have.push(w); }
+    while(have.length>want[camp]){ const w=have.pop(); scene.remove(w.g); walkers.splice(walkers.indexOf(w),1); } }
+}
+const rnd=(a,b)=>a+(b-a)*Math.random();
+function resetWalker(w){ const c=w.camp==="h"?HC:ZC, rad=w.camp==="h"?Rh:Rz; for(let t=0;t<40;t++){ const x=Math.round((c.x+rnd(-rad,rad))/ST)*ST, z=Math.round((c.y+rnd(-rad,rad))/ST)*ST; if(nodeOk(w.camp,x,z,rad)){ w.x=x+rnd(-2,2); w.z=z+rnd(-2,2); w.tx=w.x; w.tz=w.z; return; } } w.x=c.x+rnd(-6,6); w.z=c.y+rnd(-6,6); w.tx=w.x; w.tz=w.z; }
+function nextTarget(w){ const rad=w.camp==="h"?Rh:Rz; const bx=Math.round(w.x/ST)*ST, bz=Math.round(w.z/ST)*ST;
+  const opts=[[ST,0],[-ST,0],[0,ST],[0,-ST]].map(([dx,dz])=>[bx+dx,bz+dz]).filter(([x,z])=>nodeOk(w.camp,x,z,rad));
+  if(!opts.length){ resetWalker(w); return; } const [x,z]=opts[Math.floor(Math.random()*opts.length)]; w.tx=x+rnd(-2,2); w.tz=z+rnd(-2,2); }
+
+// ================= smoke + night glow =================
+const smoke=[]; for(let k=0;k<90;k++){ const s=new THREE.Sprite(new THREE.SpriteMaterial({map:smokeTex,color:0xf2efe8,transparent:true,depthWrite:false,opacity:.5})); s.visible=false; scene.add(s); smoke.push({s,t:9,life:1}); }
+let smokeAcc=0;
+function emitSmoke(){ if(!H_.length) return; const p=smoke.find(q=>q.t>=q.life); if(!p) return; const s=hSlots[Math.floor(Math.random()*Math.min(H_.length,hSlots.length))];
+  p.x=s.x; p.y=s.h+.6; p.z=s.z; p.t=0; p.life=rnd(3.5,6); p.s.visible=true; p.vx=rnd(.4,1); }
+const glowG=new THREE.BufferGeometry(); glowG.setAttribute("position",new THREE.BufferAttribute(new Float32Array((slots.length+40)*3),3)); glowG.setAttribute("color",new THREE.BufferAttribute(new Float32Array((slots.length+40)*3),3));
+const glowMat=new THREE.PointsMaterial({size:9,map:smokeTex,vertexColors:true,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,opacity:0});
+const glow=new THREE.Points(glowG,glowMat); glow.frustumCulled=false; glow.renderOrder=3; scene.add(glow);
+function rebuildGlow(){ const p=glowG.attributes.position, c=glowG.attributes.color; let n=0;
+  for(const s of slots){ if(!s.owner) continue; const z=s.owner.camp==="z"; p.setXYZ(n,s.x+Math.sin(s.yaw)*2.6,2.6,s.z+Math.cos(s.yaw)*2.6); c.setXYZ(n,z?.45:1,z?1:.72,z?.2:.3); n++; }
+  for(const g of STATIC_GLOW){ p.setXYZ(n,g[0],g[1],g[2]); c.setXYZ(n,g[3],g[4],g[5]); n++; }
+  glowG.setDrawRange(0,n); p.needsUpdate=true; c.needsUpdate=true; }
+
+// ================= fog of war =================
+const fogU={Rh:{value:30},Rz:{value:30},t:{value:0},col:{value:col(0xd3dad6)},Hc:{value:HC},Zc:{value:ZC}};
+const fogPlane=new THREE.Mesh(new THREE.PlaneGeometry(2600,2600),new THREE.ShaderMaterial({transparent:true,depthWrite:false,uniforms:fogU,
+  vertexShader:`varying vec3 vW; void main(){ vec4 w=modelMatrix*vec4(position,1.); vW=w.xyz; gl_Position=projectionMatrix*viewMatrix*w; }`,
+  fragmentShader:`uniform float Rh,Rz,t; uniform vec2 Hc,Zc; uniform vec3 col; varying vec3 vW;
+    float seg(vec2 p,vec2 a,vec2 b){ vec2 pa=p-a,ba=b-a; float h=clamp(dot(pa,ba)/dot(ba,ba),0.,1.); return length(pa-ba*h); }
+    void main(){ vec2 p=vW.xz; float d=min(length(p-Hc)-Rh,length(p-Zc)-Rz); d=min(d,seg(p,Hc,Zc)-16.);
+      float n=sin(vW.x*.031+t*.25)*sin(vW.z*.037-t*.18)*12.+sin(vW.x*.012-vW.z*.014+t*.1)*18.;
+      float a=smoothstep(0.,80.,d+n); float puff=.92+.08*sin(vW.x*.09+t*.4)*sin(vW.z*.08-t*.3);
+      gl_FragColor=vec4(col*puff,a*.95); }`}));
+fogPlane.rotation.x=-Math.PI/2; fogPlane.position.y=14; fogPlane.renderOrder=5; scene.add(fogPlane);
+
+// ================= residents =================
+let nextId=1; const H_=[], Z_=[]; let Rh=30, Rz=30, rhT=30, rzT=30;
+function place(camp,id){ const list=camp==="h"?H_:Z_, order=camp==="h"?hSlots:zSlots; if(list.length>=order.length) return null; const s=order[list.length]; list.push(id); s.owner={camp,id}; setState(s,camp); return s; }
+function removeAt(camp,idx){ const list=camp==="h"?H_:Z_, order=camp==="h"?hSlots:zSlots; const last=list.length-1; if(idx!==last){ list[idx]=list[last]; order[idx].owner={camp,id:list[idx]}; } list.pop(); order[last].owner=null; setState(order[last],"r"); }
+const radius=(list,order,c,min)=>Math.max(min,list.length?Math.hypot(order[list.length-1].x-c.x,order[list.length-1].z-c.y)+10:0);
+function refresh(){
+  rhT=radius(H_,hSlots,HC,30); rzT=radius(Z_,zSlots,ZC,36); Rh=rhT; Rz=rzT;
+  paintGround(rhT,rzT); paintNature(rhT,rzT); buildPalisade(rhT); spawnWalkers(); rebuildGlow();
+  document.getElementById("nh").textContent=H_.length.toLocaleString("ru-RU"); document.getElementById("nz").textContent=Z_.length.toLocaleString("ru-RU"); updateBattle();
+}
+function join(camp,n){ for(let k=0;k<n;k++) if(place(camp,nextId)) nextId++; refresh(); }
+
+// ================= labels (sprites inside the scene) =================
+function signTex(text,bg,border,big){ const fs=big?34:28, pad=big?16:12; const c=document.createElement("canvas"), x=c.getContext("2d"); x.font=`${big?"600 ":""}${fs}px Georgia,serif`;
+  const w=Math.ceil(x.measureText(text).width)+pad*2+6, h=fs+pad+6; c.width=w; c.height=h; x.font=`${big?"600 ":""}${fs}px Georgia,serif`;
+  x.fillStyle=bg; x.strokeStyle=border; x.lineWidth=3; x.beginPath(); x.roundRect(3,3,w-6,h-6,10); x.fill(); x.stroke();
+  x.fillStyle="#fbefd6"; x.textBaseline="middle"; x.fillText(text,pad+3,h/2+1);
+  const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=4; return {t,ar:w/h}; }
+const LABEL_BG={h:"#3f5a30",z:"#56602a",f:"#7a3f22","":"#4a3020"};
+const LABELS=[{t:"🧑 Лагерь людей",c:"h",p:new THREE.Vector3(HC.x+4,26,HC.y+5)},{t:"🏥 Больница",c:"",p:new THREE.Vector3(HC.x-6,20,HC.y-12)},{t:"🧟 Лагерь зомби",c:"z",p:new THREE.Vector3(ZC.x,30,ZC.y-8)},{t:"🪦 Старый склеп",c:"",p:new THREE.Vector3(ZC.x,20,ZC.y-8)},{t:"⚔️ Мост · линия фронта",c:"f",p:new THREE.Vector3(riverX(0),8,0)},{t:"Озеро",c:"",p:new THREE.Vector3(LAKE.x,5,LAKE.z),fog:true},{t:"Горы",c:"",p:new THREE.Vector3(-40,150,-420)}]
+  .map(l=>{ const a=signTex(l.t,LABEL_BG[l.c],l.c==="z"?"#a8d050":"#c9a04a",true), b=l.fog?signTex("??? в тумане","#777","#999",true):null;
+    const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:a.t,depthTest:false,depthWrite:false,sizeAttenuation:false,transparent:true})); sp.center.set(.5,0); const H=.026; sp.scale.set(H*a.ar,H,1); sp.position.copy(l.p); sp.renderOrder=20; scene.add(sp); return {...l,sp,a,b,H,cur:"a"}; });
+const signCache=new Map();
+function nameTexFor(o){ const key=o.camp+o.id; if(!signCache.has(key)){ if(signCache.size>400){ const k=signCache.keys().next().value; signCache.get(k).t.dispose(); signCache.delete(k); } signCache.set(key,signTex("@житель_"+o.id,o.camp==="z"?"#46551e":"#4a3020",o.camp==="z"?"#a8d050":"#c9a04a",false)); } return signCache.get(key); }
+const namePool=[]; for(let k=0;k<30;k++){ const sp=new THREE.Sprite(new THREE.SpriteMaterial({depthWrite:false,transparent:true,sizeAttenuation:false})); sp.center.set(.5,0); sp.visible=false; sp.renderOrder=19; scene.add(sp); namePool.push(sp); }
+let namesOn=true, nameTick=0; const shown=new Map();
+document.getElementById("nmBtn").onclick=()=>{ namesOn=!namesOn; nameTick=0; document.getElementById("nmBtn").style.opacity=namesOn?1:.5; };
+
+// ================= battle =================
+const bdate=document.getElementById("bdate"); bdate.value=new Date(Date.now()+7*864e5).toISOString().slice(0,10);
+function updateBattle(){ const d=new Date(bdate.value+"T19:00:00"), days=Math.ceil((d-Date.now())/864e5), ds=d.toLocaleDateString("ru-RU",{day:"numeric",month:"long"});
+  document.getElementById("battle").textContent=days>1?`⚔️ Битва ${ds} · через ${days} дн.`:days===1?`⚔️ Битва завтра, ${ds}!`:`⚔️ Битва сегодня! Пишите под рилсом`; }
+bdate.addEventListener("change",updateBattle);
+const sheet=document.getElementById("sheet"), bottom=document.getElementById("bottom");
+document.getElementById("openB").onclick=()=>{ sheet.style.display="block"; bottom.style.display="none"; };
+document.getElementById("closeB").onclick=()=>{ sheet.style.display="none"; bottom.style.display="block"; };
+const sparks=[]; const sparkGeo=new THREE.SphereGeometry(1.4,8,6);
+function spark(s,c){ const m=new THREE.Mesh(sparkGeo,new THREE.MeshBasicMaterial({color:c,transparent:true})); m.position.set(s.x,7,s.z); scene.add(m); sparks.push({m,t:0}); }
+document.getElementById("fight").onclick=()=>{
+  const rI=Math.max(0,parseInt(document.getElementById("ninf").value)||0), rC=Math.max(0,parseInt(document.getElementById("ncur").value)||0);
+  const inf=Math.min(rI,Z_.length,H_.length), cur=Math.min(rC,H_.length,Z_.length), capped=rI>Z_.length||rC>H_.length;
+  sheet.style.display="none"; bottom.style.display="block";
+  const pk=(l,n)=>{ const a=[...l]; for(let k=a.length-1;k>0;k--){const r=Math.floor(Math.random()*(k+1)); [a[k],a[r]]=[a[r],a[k]];} return a.slice(0,n); };
+  const vic=pk(H_,inf), cure=pk(Z_,cur), slotOf=(camp,id)=>(camp==="h"?hSlots:zSlots)[(camp==="h"?H_:Z_).indexOf(id)];
+  vic.forEach(id=>spark(slotOf("h",id),0xaaff3a)); cure.forEach(id=>spark(slotOf("z",id),0x7ac8ff));
+  setTimeout(()=>{ vic.forEach(id=>removeAt("h",H_.indexOf(id))); cure.forEach(id=>removeAt("z",Z_.indexOf(id)));
+    vic.forEach(id=>{ const s=place("z",id); if(s) spark(s,0xaaff3a); }); cure.forEach(id=>{ const s=place("h",id); if(s) spark(s,0x7ac8ff); });
+    refresh(); showPop(`⚔️ Битва окончена!<br>🧟 Заражено людей: <b>${inf}</b><br>💉 Вылечено зомби: <b>${cur}</b><br><br>Теперь: 🧑 ${H_.length.toLocaleString("ru-RU")} · 🧟 ${Z_.length.toLocaleString("ru-RU")}${capped?"<br><span style='font-size:12px;color:#7a3a22'>Лишние комменты не засчитаны: один житель - один комментарий</span>":""}`,5600); },1300);
+};
+
+// ================= UI =================
+document.getElementById("addH").onclick=()=>join("h",50);
+document.getElementById("addZ").onclick=()=>join("z",50);
+let nightOn=false; document.getElementById("dn").onclick=()=>{ nightOn=!nightOn; document.getElementById("dn").textContent=nightOn?"☀️":"🌙"; };
+const pop=document.getElementById("pop"); let popT;
+function showPop(h,ms=2600){ pop.innerHTML=h; pop.style.display="block"; clearTimeout(popT); popT=setTimeout(()=>pop.style.display="none",ms); }
+const ray=new THREE.Raycaster(), ndc=new THREE.Vector2(); let down=null;
+canvas.addEventListener("pointerdown",e=>down=[e.clientX,e.clientY]);
+canvas.addEventListener("pointerup",e=>{ if(!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>8) return;
+  ndc.set(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1); ray.setFromCamera(ndc,camera);
+  if(housesDirty) rebuildHouses(); const h=ray.intersectObjects(PICKABLE,false)[0]; if(!h) return;
+  const s=h.object.userData.arr[h.instanceId]; if(!s) return; const o=s.owner;
+  if(!o) showPop("🏚 Пустые руины<br><span style='font-size:13px'>ждут нового жителя</span>");
+  else if(o.camp==="h") showPop(`🧑 Здесь живёт человек<br><b>@житель_${o.id}</b><br><span style='font-size:13px'>дом восстановлен</span>`);
+  else showPop(`🧟 Здесь живёт зомби<br><b>@житель_${o.id}</b><br><span style='font-size:13px'>дом зарос</span>`); });
+
+// ================= loop =================
+const clock=new THREE.Clock(); let dark=0;
+function frame(){
+  const dt=Math.min(clock.getDelta(),.05), t=clock.elapsedTime;
+  fogU.t.value=t; waterU.t.value=t;
+  fogU.Rh.value+=(rhT-fogU.Rh.value)*Math.min(1,dt*1.8); fogU.Rz.value+=(rzT-fogU.Rz.value)*Math.min(1,dt*1.8);
+  dark+=((nightOn?1:0)-dark)*Math.min(1,dt*2.5); waterU.night.value=dark*.85;
+  scene.background.copy(SKY_D).lerp(SKY_N,dark); scene.fog.color.copy(scene.background);
+  fogU.col.value.set(0xd3dad6).lerp(col(0x232836),dark);
+  hemi.intensity=.85-.62*dark; sun.intensity=1.95-1.8*dark; sun.color.set(0xfff0d8).lerp(col(0x8fa6ff),dark);
+  glowMat.opacity=dark*.95;
+  fireLight.intensity=(.8+3.2*dark)*(1+.18*Math.sin(t*13)+.1*Math.sin(t*7.3));
+  pitLight.intensity=(.3+3*dark)*(1+.2*Math.sin(t*2.3));
+  flames.forEach((f,k)=>{ f.scale.set(1+.12*Math.sin(t*11+k),1+.22*Math.sin(t*9+k*2),1+.12*Math.cos(t*10+k)); f.rotation.y=t*(1+k); });
+  embers.forEach(e=>{ e.t+=dt; if(e.t>2){ e.t=0; e.x=rnd(-.6,.6); e.z=rnd(-.6,.6); } e.s.position.set(e.x+Math.sin(e.t*4)*.3,1.5+e.t*3,e.z); e.s.material.opacity=1-e.t/2; });
+  { const p=flag.geometry.attributes.position; for(let i=0;i<p.count;i++){ const x=flagBase[i*3]; p.setZ(i,Math.sin(x*1.2+t*4)*.35*((x+2.5)/5)); } p.needsUpdate=true; }
+  { const nowL=performance.now(); if(housesDirty||(nowL>lodNext&&camera.position.distanceTo(lodCam)>10)){ rebuildHouses(); lodNext=nowL+200; } }
+  for(const w of walkers){ w.g.visible=Math.hypot(w.x-camera.position.x,w.z-camera.position.z,camera.position.y)<230; const dx=w.tx-w.x, dz=w.tz-w.z, d=Math.hypot(dx,dz);
+    if(d<.5) nextTarget(w); else { const sp=w.sp*dt; w.x+=dx/d*sp; w.z+=dz/d*sp; w.g.rotation.y=Math.atan2(dx,dz); }
+    if(w.g.visible) w.mixer.update(dt*(w.camp==="z"?1:1.25));
+    const [ux,uz]=unwarp(w.x,w.z); w.g.position.set(ux,0,uz); }
+  for(const b of birds){ b.a+=b.sp*dt; b.g.position.set(b.c.x+Math.cos(b.a)*b.r,b.h+Math.sin(t+b.ph)*2,b.c.y+Math.sin(b.a)*b.r); b.g.rotation.y=-b.a+(b.sp>0?Math.PI:0); const f=Math.sin(t*9+b.ph)*.7; b.pl.rotation.z=f; b.pr.rotation.z=-f; }
+  smokeAcc+=dt*Math.min(26,H_.length/12); while(smokeAcc>1){ smokeAcc--; emitSmoke(); }
+  for(const p of smoke){ if(p.t>=p.life){ p.s.visible=false; continue; } p.t+=dt; const k=p.t/p.life; p.s.position.set(p.x+k*p.vx*6,p.y+k*9,p.z+k*2); p.s.scale.setScalar(1.2+k*5); p.s.material.opacity=(1-k)*.45*(1-dark*.4); }
+  for(let i=sparks.length-1;i>=0;i--){ const s=sparks[i]; s.t+=dt; s.m.position.y+=dt*10; s.m.scale.setScalar(1+s.t*2.2); s.m.material.opacity=Math.max(0,1-s.t/1.4); if(s.t>1.4){ scene.remove(s.m); s.m.material.dispose(); sparks.splice(i,1); } }
+  controls.target.x=Math.max(-380,Math.min(460,controls.target.x)); controls.target.z=Math.max(-300,Math.min(300,controls.target.z)); controls.target.y=0;
+  controls.update();
+  { const T=controls.target, ext=Math.max(70,Math.min(300,camera.position.distanceTo(T)*.75)), sc=sun.shadow.camera; sun.target.position.copy(T); sun.position.set(T.x-160,260,T.z+120);
+    if(Math.abs(sc.right-ext)>5){ sc.left=-ext; sc.right=ext; sc.top=ext; sc.bottom=-ext; sc.near=10; sc.far=700; sc.updateProjectionMatrix(); } }
+  for(const l of LABELS){ if(!l.b) continue; const hid=Math.min(dH(l.p.x,l.p.z)-fogU.Rh.value,dZ(l.p.x,l.p.z)-fogU.Rz.value)>15, want=hid?"b":"a";
+    if(want!==l.cur){ l.cur=want; const tx=l[want]; l.sp.material.map=tx.t; l.sp.material.needsUpdate=true; l.sp.scale.set(l.H*tx.ar,l.H,1); } }
+  const nowT=performance.now(); if(nowT>nameTick){ nameTick=nowT+500;
+    const dist=camera.position.distanceTo(controls.target), T=controls.target, keepR=dist*.62, addR=dist*.5;
+    if(!namesOn||dist>230) shown.clear();
+    else { for(const s of [...shown.keys()]){ if(!s.owner||Math.hypot(s.x-T.x,s.z-T.z)>keepR||shown.get(s).userData.key!==s.owner.camp+s.owner.id) shown.delete(s); }
+      const used=new Set(shown.values()); const c=[]; for(const s of slots){ if(!s.owner||shown.has(s)) continue; const d=Math.hypot(s.x-T.x,s.z-T.z); if(d<addR) c.push([d,s]); } c.sort((x,y)=>x[0]-y[0]);
+      for(const [,s] of c){ const free=namePool.find(sp=>!used.has(sp)); if(!free) break; used.add(free); shown.set(s,free);
+        const tx=nameTexFor(s.owner); free.material.map=tx.t; free.material.needsUpdate=true; free.userData.key=s.owner.camp+s.owner.id;
+        free.position.set(s.x,s.h+1.6,s.z); free.scale.set(.0145*tx.ar,.0145,1); } }
+    const used=new Set(shown.values()); namePool.forEach(sp=>{ sp.visible=used.has(sp); }); }
+  renderer.render(scene,camera); requestAnimationFrame(frame);
+}
+addEventListener("resize",()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
+
+join("h",160); join("z",130);
+fogU.Rh.value=rhT; fogU.Rz.value=rzT;
+frame();
+const ld=document.getElementById("load"); ld.style.opacity=0; setTimeout(()=>ld.remove(),700);
+</script>
+</body>
+</html>
