@@ -468,7 +468,7 @@ const LABELS=[{t:"🧑 Лагерь людей",c:"h",p:new THREE.Vector3(HC.x+4
   .map(l=>{ const a=signTex(l.t,LABEL_BG[l.c],l.c==="z"?"#a8d050":"#c9a04a",true), b=l.fog?signTex("??? в тумане","#777","#999",true):null;
     const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:a.t,depthTest:false,depthWrite:false,sizeAttenuation:false,transparent:true})); sp.center.set(.5,0); const H=.026; sp.scale.set(H*a.ar,H,1); sp.position.copy(l.p); sp.renderOrder=20; scene.add(sp); return {...l,sp,a,b,H,cur:"a"}; });
 const signCache=new Map(); const YOU=new Set(); let nickOf=id=>"@житель_"+id;
-function nameTexFor(o){ const key=o.camp+o.id; if(!signCache.has(key)){ if(signCache.size>400){ const k=signCache.keys().next().value; signCache.get(k).t.dispose(); signCache.delete(k); } signCache.set(key,YOU.has(o.id)?Object.assign(signTex("ТВОЙ НИК","#f6c62e","#ffffff",true,"#2a2118"),{h:.036}):signTex(nickOf(o.id),o.camp==="z"?"#46551e":"#4a3020",o.camp==="z"?"#a8d050":"#c9a04a",false)); } return signCache.get(key); }
+function nameTexFor(o){ const key=o.camp+o.id; if(!signCache.has(key)){ if(signCache.size>400){ const k=signCache.keys().next().value; signCache.get(k).t.dispose(); signCache.delete(k); } signCache.set(key,YOU.has(o.id)?Object.assign(signTex("@ТВОЙ НИК","#f6c62e","#ffffff",true,"#2a2118"),{h:.036}):signTex(nickOf(o.id),o.camp==="z"?"#46551e":"#4a3020",o.camp==="z"?"#a8d050":"#c9a04a",false)); } return signCache.get(key); }
 const namePool=[]; for(let k=0;k<30;k++){ const sp=new THREE.Sprite(new THREE.SpriteMaterial({depthWrite:false,transparent:true,sizeAttenuation:false})); sp.center.set(.5,0); sp.visible=false; sp.renderOrder=19; scene.add(sp); namePool.push(sp); }
 let namesOn=true, nameTick=0; const shown=new Map();
 document.getElementById("nmBtn").onclick=()=>{ namesOn=!namesOn; nameTick=0; document.getElementById("nmBtn").style.opacity=namesOn?1:.5; };
@@ -603,13 +603,16 @@ if(FILM.on){
     [9.6,12,"Сейчас здесь всего<br><b>один житель</b>"],[12,14.2,"Город <b>только начинается</b>"],[14.5,16.8,"А на другом берегу"],[16.8,19.8,"пока всего <b>один зомби</b>"],
     [20.3,23.2,"Каждый подписчик<br><b>оживляет руины</b>"],[23.5,25.6,"Чем больше жителей,<br>тем <b>сильнее лагерь</b>"],[25.6,27.6,"А скоро - <b>битва</b>"],
     [28.5,31.2,"Новый дом <b>ждёт тебя</b>"],[32.1,35.6,"Или ты выберешь<br><b>сторону зомби?</b>"],[36,40,"Чью сторону <b>выберешь ты?</b>"]];
+  // people the film talks about: one walks around each shown house, one around the campfire
+  const actors=[]; function actor(z,cx,cz,R,sp,a=Math.random()*6.28){ const f=figure(z); scene.add(f.g); actors.push({...f,z,cx,cz,R,sp,a}); }
+  actor(false,hA.x,hA.z,5.6,2.8,2.1); actor(true,zA.x,zA.z,5.6,1.4,2.1); actor(false,HC.x+4,HC.y+5,6.3,2.6);
   const beams=[];
   function beam(s,zombie){ const mk=(r,c,add,o)=>{ const m=new THREE.Mesh(new THREE.CylinderGeometry(r,r*1.15,190,20,1,true),new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:0,depthWrite:false,blending:add?THREE.AdditiveBlending:THREE.NormalBlending,fog:false})); m.position.set(s.x,95,s.z); m.renderOrder=8; scene.add(m); beams.push({m,t:0,o}); };
     if(zombie){ mk(3.8,0x4dff2a,true,.26); mk(1.1,0x050805,false,.6); } else { mk(3.6,0xffe9a8,true,.34); mk(1.5,0xffffff,true,.3); } }
   const EV=[
     [19.9,()=>{ nightOn=true; }],
-    [28.0,()=>beam(sB,false)], [28.7,()=>{ spark(sB,0xfff1c4); YOU.add(nextId); join("h",1); }], [29.3,()=>{ nameTick=0; }],
-    [32.1,()=>beam(zB,true)], [32.8,()=>{ spark(zB,0x8cff3a); YOU.add(nextId); join("z",1); }], [33.4,()=>{ nameTick=0; }]].map(([t,fn])=>({t,fn}));
+    [28.0,()=>beam(sB,false)], [28.7,()=>{ spark(sB,0xfff1c4); YOU.add(nextId); join("h",1); actor(false,sB.x,sB.z,5.6,2.8,2.4); }], [29.3,()=>{ nameTick=0; }],
+    [32.1,()=>beam(zB,true)], [32.8,()=>{ spark(zB,0x8cff3a); YOU.add(nextId); join("z",1); actor(true,zB.x,zB.z,5.6,1.4,2.4); }], [33.4,()=>{ nameTick=0; }]].map(([t,fn])=>({t,fn}));
   const ease=u=>u*u*(3-2*u), V3=(a,b,u,out)=>out.set(a[0]+(b[0]-a[0])*u,a[1]+(b[1]-a[1])*u,a[2]+(b[2]-a[2])*u);
   if(FILM.frozen){ FILM.t=+QS.get("ft"); } else { const st=el("fstart","Включи запись экрана<br>и коснись, чтобы начать","");
     st.addEventListener("pointerdown",()=>{ st.remove(); setTimeout(()=>{ FILM.run=true; },1200); }); }
@@ -620,6 +623,7 @@ if(FILM.on){
     V3(a[1],b[1],u,camera.position); V3(a[2],b[2],u,controls.target); camera.lookAt(controls.target);
     const sb=SUBS.find(q=>t>=q[0]&&t<q[1]); const h=sb?sb[2]:""; if(fSub.innerHTML!==h&&fSub.dataset.h!==h){ fSub.dataset.h=h; fSub.innerHTML=h; }
     fTitle.style.opacity=t<2.8?1:0; fEnd.style.opacity=t>=36?1:0; fHud.style.opacity=t>=36?0:1; fSub.style.bottom=t>=36?"9%":"19%";
+    for(const q of actors){ q.a+=q.sp*dt/q.R; q.g.position.set(q.cx+q.R*Math.cos(q.a),0,q.cz+q.R*Math.sin(q.a)); q.g.rotation.y=Math.atan2(-Math.sin(q.a),Math.cos(q.a)); q.mixer.update(dt*(q.z?1:1.25)); }
     const c=`🧑 ${H_.length}  ·  🧟 ${Z_.length}`; if(fCnt.textContent!==c) fCnt.textContent=c;
     for(let k=beams.length-1;k>=0;k--){ const q=beams[k]; q.t+=FILM.frozen?0:dt; const tt=FILM.frozen?.8:q.t; q.m.material.opacity=q.o*Math.min(1,tt/.35)*Math.max(0,Math.min(1,(3.4-tt)/1.2)); q.m.rotation.y+=dt; if(tt>3.4){ scene.remove(q.m); beams.splice(k,1); } }
   };
