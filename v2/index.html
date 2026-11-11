@@ -107,7 +107,9 @@ const ST=30, GRID=10;
 const inRiver=(x,z,m=0)=>z>RIVER_Z0-5&&z<RIVER_Z1+5&&Math.abs(x-riverX(z))<riverW(z)/2+m;
 const inLake=(x,z,m=0)=>Math.hypot(x-LAKE.x,z-LAKE.z)<LAKE.r+m;
 const WA=5, unwarp=(x,z)=>[x-WA*Math.sin(z/31), z-WA*Math.sin((x-40)/37)];
-const onStreet=(X,Z,m=0)=>{ const x=X+WA*Math.sin(Z/31), z=Z+WA*Math.sin((X-40)/37); const ax=Math.abs(((x%ST)+ST+ST/2)%ST-ST/2), az=Math.abs(((z%ST)+ST+ST/2)%ST-ST/2); return ax<3+m||az<3+m; };
+const PAIR=26, R0={h:38,z:42};
+const onStreet=(x,z,m=0)=>{ if(Math.abs(z)<3.2+m&&x>HC.x&&x<ZC.x) return true; const hs=x<riverX(z), c=hs?HC:ZC, r0=hs?R0.h:R0.z, dx=x-c.x, dz=z-c.y, r=Math.hypot(dx,dz); if(r<r0-11) return false;
+  const q=((r-r0-18)%PAIR+PAIR)%PAIR; if(Math.min(q,PAIR-q)<2.6+m) return true; const sa=Math.PI/3, a=Math.atan2(dz,dx), da=Math.abs(((a%sa)+sa+sa/2)%sa-sa/2); return da*r<2.6+m; };
 const inCity=(x,z)=>z>-240&&Math.hypot((x-40)*.95,z)<345;
 const terrainH=(x,z)=>{ let h=0; const d=Math.hypot((x-40)*.95,z); if(d>360) h+=Math.min(1,(d-360)/80)*(vnoise(x*1.3,z*1.3)*.5+.5)*9; if(z<-220) h+=Math.max(0,-220-z)*.13*(vnoise(x,z)*.3+.7); if(inRiver(x,z,1)||inLake(x,z,1)) h=-.8; return h; };
 const dH=(x,z)=>Math.hypot(x-HC.x,z-HC.y), dZ=(x,z)=>Math.hypot(x-ZC.x,z-ZC.y);
@@ -169,16 +171,19 @@ function paintGround(rh,rz){
   const g=x.createLinearGradient(0,0,64,0); g.addColorStop(0,"rgba(214,186,138,0)"); g.addColorStop(.22,"rgba(214,186,138,1)"); g.addColorStop(.5,"rgba(226,201,156,1)"); g.addColorStop(.78,"rgba(214,186,138,1)"); g.addColorStop(1,"rgba(214,186,138,0)");
   x.fillStyle=g; x.fillRect(0,0,64,64); const tex=new THREE.CanvasTexture(c); tex.colorSpace=THREE.SRGBColorSpace; tex.wrapT=THREE.RepeatWrapping;
   const pos=[], uv=[], idx=[]; let n=0;
-  const line=(fn,t0,t1,isMain)=>{ let prev=null;
+  const line=(fn,t0,t1,isMain,pred)=>{ let prev=null;
     for(let t=t0;t<=t1;t+=4){ const [x1,z1]=fn(t), [x2,z2]=fn(t+4); const mx=(x1+x2)/2, mz=(z1+z2)/2;
-      const ok=inCity(mx,mz)&&!inLake(mx,mz,3)&&(isMain||!inRiver(mx,mz,3))&&mz>-236;
+      const ok=inCity(mx,mz)&&!inLake(mx,mz,3)&&(isMain||!inRiver(mx,mz,3))&&mz>-236&&(!pred||pred(mx,mz));
       if(!ok){ prev=null; continue; }
       const w=(isMain?3.4:2.5)+vnoise(mx*9,mz*9)*.7, pt=(xa,za,xb,zb)=>{ const dx=xb-xa, dz=zb-za, l=Math.hypot(dx,dz)||1; return [-dz/l*w, dx/l*w]; };
       const [nx,nz]=pt(x1,z1,x2,z2);
       const a=prev||[x1-nx,z1-nz,x1+nx,z1+nz], b=[x2-nx,z2-nz,x2+nx,z2+nz];
       pos.push(a[0],.09,a[1], a[2],.09,a[3], b[0],.09,b[1], b[2],.09,b[3]); uv.push(0,t/8, 1,t/8, 0,t/8+.5, 1,t/8+.5);
       idx.push(n,n+1,n+2, n+1,n+3,n+2); n+=4; prev=b; } };
-  for(let k=-13;k<=15;k++){ line(t=>unwarp(k*ST,t),-250,250,false); line(t=>unwarp(t,k*ST),-340,440,k===0); }
+  for(const [c,r0,pred] of [[HC,R0.h,(x,z)=>x<riverX(z)-4],[ZC,R0.z,(x,z)=>x>riverX(z)+4]]){
+    for(let r=r0-8;r<330;r+=PAIR) line(t=>[c.x+r*Math.cos(t/r),c.y+r*Math.sin(t/r)],0,Math.ceil(2*Math.PI*r/4)*4,false,pred);
+    for(let k=0;k<6;k++){ const a=k*Math.PI/3; if(k===(c===HC?0:3)) continue; line(t=>[c.x+Math.cos(a)*t,c.y+Math.sin(a)*t],r0-8,330,false,pred); } }
+  line(t=>[t,0],HC.x+R0.h-8,ZC.x-R0.z+8,true);
   const geoR=new THREE.BufferGeometry(); geoR.setAttribute("position",new THREE.Float32BufferAttribute(pos,3)); geoR.setAttribute("uv",new THREE.Float32BufferAttribute(uv,2)); geoR.setIndex(idx); { const nn=new Float32Array(pos.length); for(let i=1;i<nn.length;i+=3) nn[i]=1; geoR.setAttribute('normal',new THREE.BufferAttribute(nn,3)); }
   const roadM=new THREE.Mesh(geoR,new THREE.MeshLambertMaterial({map:tex,transparent:true,side:THREE.DoubleSide,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2}));
   roadM.receiveShadow=true; roadM.renderOrder=1; scene.add(roadM);
@@ -215,19 +220,17 @@ const COLORS=["blue","green","red","yellow"];
 const ROOF_C=[col(0x3f86dc),col(0x2f9f5a),col(0xd8433c),col(0xf0a52c)];
 const RUINS=[["destroyed",.68],["destroyed",.68],["destroyed",.6],["stage_B",.85],["stage_C",.85]];
 const slots=[];
-for(let gx=-38;gx<=42;gx++) for(let gz=-25;gz<=25;gz++){
-  if(((gx%3)+3)%3===0||((gz%3)+3)%3===0) continue;
-  const [x,z]=unwarp(gx*GRID+rr(-.6,.6),gz*GRID+rr(-.6,.6));
-  if(!inCity(x,z)||inRiver(x,z,8)||inLake(x,z,9)) continue;
-  if(dH(x,z)<24||dZ(x,z)<30) continue;
-  const side=x<riverX(z)?"h":"z", c=side==="h"?HC:ZC;
-  const yaw=(((gz%3)+3)%3===1?Math.PI:0)+rr(-.18,.18);
-  const B=R()<.4, ci=Math.floor(R()*4), ru=pick(RUINS), sc=rr(.92,1.06);
-  const s={x,z,side,yaw,B,ci,h:B?8.3:6,key:`home_${B?"B":"A"}_${COLORS[ci]}`,ruin:ru[0],seed:R(),k:Math.hypot(x-c.x,z-c.y)+vnoise(x*3,z*3)*12+rr(-3,3),owner:null,state:"r"};
-  s.mH=M4(x,0,z,0,yaw,0,sc); s.mZ=M4(x,-.15,z,rr(-.04,.04),yaw,rr(-.07,.07),sc); s.mR=M4(x,0,z,0,yaw+Math.floor(R()*4)*Math.PI/2,0,ru[1]*rr(.9,1.1));
-  s.mF=M4(x,0,z,0,yaw,0,[sc,B?1.35:1,sc]);
-  slots.push(s);
-}
+for(const side of ["h","z"]){ const c=side==="h"?HC:ZC, r0=R0[side]; let j=0;
+  for(let p=0;p<14;p++) for(const inner of [true,false]){ const r=r0+p*PAIR+(inner?0:10), n=Math.floor(2*Math.PI*r/9.8), off=R()*6.28;
+    for(let i=0;i<n;i++){ const a=off+i/n*Math.PI*2, x=c.x+r*Math.cos(a), z=c.y+r*Math.sin(a);
+      if(!inCity(x,z)||inRiver(x,z,8)||inLake(x,z,9)) continue; if(side==="h"?x>riverX(z)-11:x<riverX(z)+11) continue;
+      const sa=Math.PI/3, da=Math.abs(((a%sa)+sa+sa/2)%sa-sa/2); if(da*r<6.3) continue;
+      const yaw=Math.atan2(Math.cos(a),Math.sin(a))+(inner?Math.PI:0)+rr(-.08,.08);
+      const B=R()<.4, ci=j%4, ru=pick(RUINS), sc=rr(.92,1.06);
+      const s={x,z,side,yaw,B,ci,ring:j,h:B?8.3:6,key:`home_${B?"B":"A"}_${COLORS[ci]}`,ruin:ru[0],seed:R(),k:r+R()*4,owner:null,state:"r"};
+      s.mH=M4(x,0,z,0,yaw,0,sc); s.mZ=M4(x,-.15,z,rr(-.04,.04),yaw,rr(-.07,.07),sc); s.mR=M4(x,0,z,0,yaw+Math.floor(R()*4)*Math.PI/2,0,ru[1]*rr(.9,1.1));
+      slots.push(s); }
+    j++; } }
 const hSlots=slots.filter(s=>s.side==="h").sort((a,b)=>a.k-b.k), zSlots=slots.filter(s=>s.side==="z").sort((a,b)=>a.k-b.k);
 
 // every house has a detailed model (near, casts shadows) and a lighter one (far); zombies use the grey texture
@@ -289,8 +292,7 @@ const town=[]; const tCount=[0,0,0,0,0];
 for(let i=0;i<9000&&town.length<340;i++){
   const x=rr(-330,420), z=rr(-240,240);
   if(!inCity(x,z)||inRiver(x,z,5)||inLake(x,z,6)||onStreet(x,z,1.5)||dH(x,z)<22||dZ(x,z)<28) continue;
-  const [ux,uz]=[x,z]; const gx=(ux+WA*Math.sin(uz/31))/GRID, gz=(uz+WA*Math.sin((ux-40)/37))/GRID;
-  if(Math.abs(gx-Math.round(gx))<.42&&Math.abs(gz-Math.round(gz))<.42) continue; // keep clear of house plots
+  if(slots.some(q=>Math.abs(q.x-x)<5.5&&Math.abs(q.z-z)<5.5)) continue; // keep clear of house plots
   const t=Math.floor(R()*5); tCount[t]++; town.push({x,z,t,m:M4(x,.4,z,0,R()*6.28,0,TOWN[t][1]*rr(.75,1.1))});
 }
 const townM=TOWN.map(([n],i)=>inst(n,tCount[i]));
@@ -407,18 +409,16 @@ function recolor(tex,map){ const im=tex.image, c=document.createElement("canvas"
 function figure(z){ const pool=z?CH.z:(Math.random()<.5?CH.g:CH.h); const src=pool[Math.floor(Math.random()*pool.length)]; const g=SkeletonUtils.clone(src.scene); g.scale.setScalar(src.scale*(z?.82+Math.random()*.36:.92+Math.random()*.16));
   const mixer=new THREE.AnimationMixer(g); mixer.clipAction(src.clip).play(); mixer.setTime(Math.random()*1.3); return {g,mixer}; }
 const walkers=[];
-function nodeOk(camp,x,z,rad){ const c=camp==="h"?HC:ZC; if(Math.hypot(x-c.x,z-c.y)>rad-3) return false; if(inRiver(x,z,5)||inLake(x,z,5)) return false; return camp==="h"? x<riverX(z)-6 : x>riverX(z)+6; }
+function walkOk(camp,x,z){ if(inRiver(x,z,5)||inLake(x,z,5)||!inCity(x,z)) return false; return camp==="h"? x<riverX(z)-6 : x>riverX(z)+6; }
 function spawnWalkers(){
   const want={h:Math.min(28,Math.ceil(H_.length/6)),z:Math.min(28,Math.ceil(Z_.length/6))};
   for(const camp of ["h","z"]){ const have=walkers.filter(w=>w.camp===camp);
-    while(have.length<want[camp]){ const f=figure(camp==="z"); const w={...f,camp,x:0,z:0,tx:0,tz:0,ph:Math.random()*6,sp:camp==="z"?1.5:3.4}; resetWalker(w); scene.add(f.g); walkers.push(w); have.push(w); }
+    while(have.length<want[camp]){ const f=figure(camp==="z"); const w={...f,camp,x:0,z:0,R:30,a:0,dir:1,sp:camp==="z"?1.5:3.4}; resetWalker(w); scene.add(f.g); walkers.push(w); have.push(w); }
     while(have.length>want[camp]){ const w=have.pop(); scene.remove(w.g); walkers.splice(walkers.indexOf(w),1); } }
 }
 const rnd=(a,b)=>a+(b-a)*Math.random();
-function resetWalker(w){ const c=w.camp==="h"?HC:ZC, rad=w.camp==="h"?Rh:Rz; for(let t=0;t<40;t++){ const x=Math.round((c.x+rnd(-rad,rad))/ST)*ST, z=Math.round((c.y+rnd(-rad,rad))/ST)*ST; if(nodeOk(w.camp,x,z,rad)){ w.x=x+rnd(-2,2); w.z=z+rnd(-2,2); w.tx=w.x; w.tz=w.z; return; } } w.x=c.x+rnd(-6,6); w.z=c.y+rnd(-6,6); w.tx=w.x; w.tz=w.z; }
-function nextTarget(w){ const rad=w.camp==="h"?Rh:Rz; const bx=Math.round(w.x/ST)*ST, bz=Math.round(w.z/ST)*ST;
-  const opts=[[ST,0],[-ST,0],[0,ST],[0,-ST]].map(([dx,dz])=>[bx+dx,bz+dz]).filter(([x,z])=>nodeOk(w.camp,x,z,rad));
-  if(!opts.length){ resetWalker(w); return; } const [x,z]=opts[Math.floor(Math.random()*opts.length)]; w.tx=x+rnd(-2,2); w.tz=z+rnd(-2,2); }
+function resetWalker(w){ const c=w.camp==="h"?HC:ZC, r0=R0[w.camp], rad=w.camp==="h"?Rh:Rz; const n=Math.max(1,Math.floor((rad-4-(r0-8))/PAIR)+1);
+  for(let t=0;t<40;t++){ w.R=r0-8+Math.floor(Math.random()*n)*PAIR; w.a=Math.random()*6.283; w.dir=Math.random()<.5?1:-1; w.x=c.x+w.R*Math.cos(w.a); w.z=c.y+w.R*Math.sin(w.a); if(walkOk(w.camp,w.x,w.z)) return; } }
 
 // ================= smoke + night glow =================
 const smoke=[]; for(let k=0;k<90;k++){ const s=new THREE.Sprite(new THREE.SpriteMaterial({map:smokeTex,color:0xf2efe8,transparent:true,depthWrite:false,opacity:.5})); s.visible=false; scene.add(s); smoke.push({s,t:9,life:1}); }
@@ -528,10 +528,11 @@ function frame(){
   embers.forEach(e=>{ e.t+=dt; if(e.t>2){ e.t=0; e.x=rnd(-.6,.6); e.z=rnd(-.6,.6); } e.s.position.set(e.x+Math.sin(e.t*4)*.3,1.5+e.t*3,e.z); e.s.material.opacity=1-e.t/2; });
   { const p=flag.geometry.attributes.position; for(let i=0;i<p.count;i++){ const x=flagBase[i*3]; p.setZ(i,Math.sin(x*1.2+t*4)*.35*((x+2.5)/5)); } p.needsUpdate=true; }
   { const nowL=performance.now(); if(housesDirty||(nowL>lodNext&&camera.position.distanceTo(lodCam)>10)){ rebuildHouses(); lodNext=nowL+200; } }
-  for(const w of walkers){ w.g.visible=Math.hypot(w.x-camera.position.x,w.z-camera.position.z,camera.position.y)<230; const dx=w.tx-w.x, dz=w.tz-w.z, d=Math.hypot(dx,dz);
-    if(d<.5) nextTarget(w); else { const sp=w.sp*dt; w.x+=dx/d*sp; w.z+=dz/d*sp; w.g.rotation.y=Math.atan2(dx,dz); }
-    if(w.g.visible) w.mixer.update(dt*(w.camp==="z"?1:1.25));
-    const [ux,uz]=unwarp(w.x,w.z); w.g.position.set(ux,0,uz); }
+  for(const w of walkers){ w.g.visible=Math.hypot(w.x-camera.position.x,w.z-camera.position.z,camera.position.y)<230;
+    const c=w.camp==="h"?HC:ZC, na=w.a+w.dir*w.sp*dt/w.R, nx=c.x+w.R*Math.cos(na), nz=c.y+w.R*Math.sin(na);
+    if(walkOk(w.camp,nx,nz)){ w.a=na; w.x=nx; w.z=nz; } else w.dir*=-1;
+    w.g.rotation.y=Math.atan2(-Math.sin(w.a)*w.dir,Math.cos(w.a)*w.dir); w.g.position.set(w.x,0,w.z);
+    if(w.g.visible) w.mixer.update(dt*(w.camp==="z"?1:1.25)); }
   for(const b of birds){ b.a+=b.sp*dt; b.g.position.set(b.c.x+Math.cos(b.a)*b.r,b.h+Math.sin(t+b.ph)*2,b.c.y+Math.sin(b.a)*b.r); b.g.rotation.y=-b.a+(b.sp>0?Math.PI:0); const f=Math.sin(t*9+b.ph)*.7; b.pl.rotation.z=f; b.pr.rotation.z=-f; }
   smokeAcc+=dt*Math.min(26,H_.length/12); while(smokeAcc>1){ smokeAcc--; emitSmoke(); }
   for(const p of smoke){ if(p.t>=p.life){ p.s.visible=false; continue; } p.t+=dt; const k=p.t/p.life; p.s.position.set(p.x+k*p.vx*6,p.y+k*9,p.z+k*2); p.s.scale.setScalar(1.2+k*5); p.s.material.opacity=(1-k)*.45*(1-dark*.4); }
@@ -554,10 +555,10 @@ function frame(){
 }
 addEventListener("resize",()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
 
-join("h",160); join("z",130);
+const QS=new URLSearchParams(location.search);
+if(QS.has("film")){ join("h",1); join("z",1); } else { join("h",160); join("z",130); }
 
 // ================= film mode (add ?film to the address): the camera flies the reel scenario by itself =================
-const QS=new URLSearchParams(location.search);
 const FILM={on:QS.has("film"),t:0,run:false,frozen:QS.has("ft")};
 let filmStep=()=>{};
 if(FILM.on){
@@ -586,41 +587,35 @@ if(FILM.on){
   // demo nicks for the film (invented)
   { const A=["mila","tim","dana","alex","nika","max","lina","dan","sofi","kira","leo","aya","mark","eva","ilya","zara","rom","vera","art","yana"], B=["_k",".life","_27","ok","_art",".pro","_x","88","_me",".go","_91","","_s","2k",".mama","_dev"];
     nickOf=id=>"@"+A[(id*7)%A.length]+B[(id*13+Math.floor(id/20))%B.length]; signCache.clear(); }
-  const H0=H_.length, Z0=Z_.length, HG=Math.min(420,hSlots.length-3), ZG=Math.min(360,zSlots.length-3);
-  const sA=hSlots[H0], sB=hSlots[HG], zB=zSlots[ZG];
+  const hA=hSlots[0], sB=hSlots[1], zA=zSlots[0], zB=zSlots[1];
   const near=(s,dx,dy,dz)=>[[s.x+dx,dy,s.z+dz],[s.x,3.5,s.z]];
   const bx=riverX(0);
   const KEYS=[ // time, camera position, look-at
     [0,[bx+74,6,2.5],[bx+20,5,0]], [3,[bx+40,8.5,2],[bx-8,5,0]],
     [5.5,[-300,245,45],[40,0,-4]], [9,[-322,262,30],[40,0,-4]],
-    [11,...near(sA,-15,17,27)], [14,...near(sA,-10,13,22)],
-    [16.2,[bx+18,34,44],[bx+70,0,2]], [18.5,[ZC.x-30,26,ZC.y+46],[ZC.x,5,ZC.y-2]],
-    [20.6,[HC.x+1,11,HC.y+31],[HC.x+4,3,HC.y+4]], [22.6,[HC.x+6,9.5,HC.y+27],[HC.x+4,3,HC.y+4]],
-    [24.2,[-300,245,45],[40,0,-4]], [27,[-350,290,30],[40,0,-4]],
-    [28.2,...near(sB,-16,19,30)], [31,...near(sB,-11,14,24)],
+    [11,...near(hA,-15,17,27)], [14,...near(hA,-10,13,22)],
+    [16,[bx-10,36,46],[bx+40,0,2]], [17.8,...near(zA,-15,17,27)], [19.8,...near(zA,-10,13,22)],
+    [21.4,[HC.x+1,11,HC.y+31],[HC.x+4,3,HC.y+4]], [23.2,[HC.x+6,9.5,HC.y+27],[HC.x+4,3,HC.y+4]],
+    [24.6,[-300,245,45],[40,0,-4]], [27.4,[-350,290,30],[40,0,-4]],
+    [28.4,...near(sB,-16,19,30)], [31,...near(sB,-11,14,24)],
     [31.9,...near(zB,-16,19,30)], [35.6,...near(zB,-11,14,24)], [40,...near(zB,-9,13,21)]];
   const SUBS=[[.2,3,"Один подписчик - <b>один житель</b>"],[3.2,5.4,"Это <b>Humans vs Zombies</b>"],[5.6,7.3,"Мир после <b>конца света</b>"],[7.3,9.2,"Два лагеря: <b>люди</b> и <b>зомби</b>"],
-    [9.6,12.3,"Подписываешься, и руины<br>становятся <b>твоим домом</b>"],[12.3,14,"С <b>твоим ником</b>"],[14.3,16.4,"А можешь выбрать<br><b>другую сторону</b>"],[16.4,18.6,"И твой дом <b>зарастёт</b>"],
-    [19,21,"Твой житель гуляет,<br><b>греется у костра</b>"],[21,22.7,"и живёт <b>своей жизнью</b>"],[23,25,"Каждый день<br>приходят <b>новые</b>"],[25,27,"А скоро - <b>битва</b>"],
-    [28.4,31.2,"Новый дом <b>ждёт тебя</b>"],[32.1,35.6,"Или ты выберешь<br><b>сторону зомби?</b>"],[36,40,"Подпишись и <b>выбери сторону</b>"]];
+    [9.6,12,"Сейчас здесь всего<br><b>один житель</b>"],[12,14.2,"Город <b>только начинается</b>"],[14.5,16.8,"А на другом берегу"],[16.8,19.8,"пока всего <b>один зомби</b>"],
+    [20.3,23.2,"Каждый подписчик<br><b>оживляет руины</b>"],[23.5,25.6,"Чем больше жителей,<br>тем <b>сильнее лагерь</b>"],[25.6,27.6,"А скоро - <b>битва</b>"],
+    [28.5,31.2,"Новый дом <b>ждёт тебя</b>"],[32.1,35.6,"Или ты выберешь<br><b>сторону зомби?</b>"],[36,40,"Чью сторону <b>выберешь ты?</b>"]];
   const beams=[];
   function beam(s,zombie){ const mk=(r,c,add,o)=>{ const m=new THREE.Mesh(new THREE.CylinderGeometry(r,r*1.15,190,20,1,true),new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:0,depthWrite:false,blending:add?THREE.AdditiveBlending:THREE.NormalBlending,fog:false})); m.position.set(s.x,95,s.z); m.renderOrder=8; scene.add(m); beams.push({m,t:0,o}); };
     if(zombie){ mk(3.8,0x4dff2a,true,.26); mk(1.1,0x050805,false,.6); } else { mk(3.6,0xffe9a8,true,.34); mk(1.5,0xffffff,true,.3); } }
   const EV=[
-    [10.4,()=>beam(sA,false)], [11.1,()=>{ spark(sA,0xfff1c4); join("h",1); nameTick=0; }],
-    [18.3,()=>{ nightOn=true; }],
+    [19.9,()=>{ nightOn=true; }],
     [28.0,()=>beam(sB,false)], [28.7,()=>{ spark(sB,0xfff1c4); YOU.add(nextId); join("h",1); }], [29.3,()=>{ nameTick=0; }],
     [32.1,()=>beam(zB,true)], [32.8,()=>{ spark(zB,0x8cff3a); YOU.add(nextId); join("z",1); }], [33.4,()=>{ nameTick=0; }]].map(([t,fn])=>({t,fn}));
-  let lastR=0, grewDone=false;
-  function grow(tt){ if(tt<22.8||grewDone) return; const k=Math.min(1,(tt-22.8)/4), th=H0+1+Math.round((HG-H0-1)*k), tz=Z0+Math.round((ZG-Z0)*k); let ch=false;
-    while(H_.length<th&&place("h",nextId)){ nextId++; ch=true; } while(Z_.length<tz&&place("z",nextId)){ nextId++; ch=true; }
-    const now=performance.now(); if(k>=1){ grewDone=true; refresh(); } else if(ch&&now-lastR>450){ lastR=now; refresh(); } }
   const ease=u=>u*u*(3-2*u), V3=(a,b,u,out)=>out.set(a[0]+(b[0]-a[0])*u,a[1]+(b[1]-a[1])*u,a[2]+(b[2]-a[2])*u);
   if(FILM.frozen){ FILM.t=+QS.get("ft"); } else { const st=el("fstart","Включи запись экрана<br>и коснись, чтобы начать","");
     st.addEventListener("pointerdown",()=>{ st.remove(); setTimeout(()=>{ FILM.run=true; },1200); }); }
   filmStep=dt=>{
     if(FILM.run) FILM.t+=dt; const t=FILM.t;
-    for(const e of EV){ if(e.done||e.t>t) continue; grow(e.t); e.fn(); e.done=true; } grow(t);
+    for(const e of EV){ if(e.done||e.t>t) continue; e.fn(); e.done=true; } rhT=Math.max(rhT,165); rzT=Math.max(rzT,165);
     let i=0; while(i<KEYS.length-2&&t>=KEYS[i+1][0]) i++; const a=KEYS[i], b=KEYS[i+1], u=ease(Math.max(0,Math.min(1,(t-a[0])/(b[0]-a[0]))));
     V3(a[1],b[1],u,camera.position); V3(a[2],b[2],u,controls.target); camera.lookAt(controls.target);
     const sb=SUBS.find(q=>t>=q[0]&&t<q[1]); const h=sb?sb[2]:""; if(fSub.innerHTML!==h&&fSub.dataset.h!==h){ fSub.dataset.h=h; fSub.innerHTML=h; }
