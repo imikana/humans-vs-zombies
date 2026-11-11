@@ -94,6 +94,8 @@ function geo(n){ if(geoCache[n]) return geoCache[n]; const m=PACK.models[n]; if(
   g.setAttribute("position",new THREE.InterleavedBufferAttribute(ib,3,0)); g.setAttribute("normal",new THREE.InterleavedBufferAttribute(ib,3,3)); g.setAttribute("uv",new THREE.InterleavedBufferAttribute(ib,2,6));
   g.setIndex(new THREE.BufferAttribute(IB.subarray(m.i[0],m.i[0]+m.i[1]),1)); return geoCache[n]=g; }
 const matOf=n=>MATS[PACK.models[n].tex];
+{ const t=await texLoader.loadAsync('assets/tex0g.png'); t.flipY=false; t.colorSpace=THREE.SRGBColorSpace; MATS.push(new THREE.MeshLambertMaterial({map:t})); }
+const GREY=MATS[3];
 
 // ================= layout =================
 const riverX=z=>40+20*Math.sin(z/45);
@@ -146,7 +148,7 @@ const gp=ground.attributes.position, GN=gp.count, gBase=new Float32Array(GN*3), 
   const d1=col(0x9a9468), d2=col(0x857f5a), sand=col(0xc9b88a), road=col(0xb89f78), c=new THREE.Color();
   for(let i=0;i<GN;i++){ const x=gp.getX(i), z=gp.getZ(i); gX[i]=x; gZ[i]=z; const n=vnoise(x*1.5,z*1.5)*.5+.5;
     c.copy(d1).lerp(d2,n);
-    if(inCity(x,z)&&onStreet(x,z,-.3)){ c.copy(road).offsetHSL(0,0,(n-.5)*.06); gRoad[i]=1; }
+    
     if(inRiver(x,z,4)||inLake(x,z,6)) c.copy(sand);
     gp.setY(i,terrainH(x,z)); gBase.set([c.r,c.g,c.b],i*3); }
   ground.setAttribute("color",new THREE.BufferAttribute(gCol,3)); ground.computeVertexNormals();
@@ -159,6 +161,27 @@ function paintGround(rh,rz){
       r+=(GREEN.r-r)*k1; g+=(GREEN.g-g)*k1; b+=(GREEN.b-b)*k1; r+=(TOXIC.r-r)*k2; g+=(TOXIC.g-g)*k2; b+=(TOXIC.b-b)*k2; }
     gCol[i*3]=r; gCol[i*3+1]=g; gCol[i*3+2]=b; }
   ground.attributes.color.needsUpdate=true;
+}
+
+// ================= paths: a separate soft-edged layer over the grass =================
+{
+  const c=document.createElement("canvas"); c.width=64; c.height=64; const x=c.getContext("2d");
+  const g=x.createLinearGradient(0,0,64,0); g.addColorStop(0,"rgba(214,186,138,0)"); g.addColorStop(.22,"rgba(214,186,138,1)"); g.addColorStop(.5,"rgba(226,201,156,1)"); g.addColorStop(.78,"rgba(214,186,138,1)"); g.addColorStop(1,"rgba(214,186,138,0)");
+  x.fillStyle=g; x.fillRect(0,0,64,64); const tex=new THREE.CanvasTexture(c); tex.colorSpace=THREE.SRGBColorSpace; tex.wrapT=THREE.RepeatWrapping;
+  const pos=[], uv=[], idx=[]; let n=0;
+  const line=(fn,t0,t1,isMain)=>{ let prev=null;
+    for(let t=t0;t<=t1;t+=4){ const [x1,z1]=fn(t), [x2,z2]=fn(t+4); const mx=(x1+x2)/2, mz=(z1+z2)/2;
+      const ok=inCity(mx,mz)&&!inLake(mx,mz,3)&&(isMain||!inRiver(mx,mz,3))&&mz>-236;
+      if(!ok){ prev=null; continue; }
+      const w=(isMain?3.4:2.5)+vnoise(mx*9,mz*9)*.7, pt=(xa,za,xb,zb)=>{ const dx=xb-xa, dz=zb-za, l=Math.hypot(dx,dz)||1; return [-dz/l*w, dx/l*w]; };
+      const [nx,nz]=pt(x1,z1,x2,z2);
+      const a=prev||[x1-nx,z1-nz,x1+nx,z1+nz], b=[x2-nx,z2-nz,x2+nx,z2+nz];
+      pos.push(a[0],.09,a[1], a[2],.09,a[3], b[0],.09,b[1], b[2],.09,b[3]); uv.push(0,t/8, 1,t/8, 0,t/8+.5, 1,t/8+.5);
+      idx.push(n,n+1,n+2, n+1,n+3,n+2); n+=4; prev=b; } };
+  for(let k=-13;k<=15;k++){ line(t=>unwarp(k*ST,t),-250,250,false); line(t=>unwarp(t,k*ST),-340,440,k===0); }
+  const geoR=new THREE.BufferGeometry(); geoR.setAttribute("position",new THREE.Float32BufferAttribute(pos,3)); geoR.setAttribute("uv",new THREE.Float32BufferAttribute(uv,2)); geoR.setIndex(idx); { const nn=new Float32Array(pos.length); for(let i=1;i<nn.length;i+=3) nn[i]=1; geoR.setAttribute('normal',new THREE.BufferAttribute(nn,3)); }
+  const roadM=new THREE.Mesh(geoR,new THREE.MeshLambertMaterial({map:tex,transparent:true,side:THREE.DoubleSide,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2}));
+  roadM.receiveShadow=true; roadM.renderOrder=1; scene.add(roadM);
 }
 
 // ================= water =================
@@ -207,40 +230,30 @@ for(let gx=-38;gx<=42;gx++) for(let gz=-25;gz<=25;gz++){
 }
 const hSlots=slots.filter(s=>s.side==="h").sort((a,b)=>a.k-b.k), zSlots=slots.filter(s=>s.side==="z").sort((a,b)=>a.k-b.k);
 
-// near (detailed) meshes
-const near={};
-for(const v of ["A","B"]) for(const c of COLORS){ const k=`home_${v}_${c}`, n=slots.filter(s=>s.key===k).length; near[k]=inst(k,n,{receive:true}); }
-for(const k of ["destroyed","stage_B","stage_C"]) near[k]=inst(k,slots.filter(s=>s.ruin===k).length,{receive:true});
-// far (light) meshes: body + roof + ruin lump
-const farBodyG=(()=>{ const g=new THREE.BoxGeometry(5,4.2,5.4); g.translate(0,2.1,0); return g; })();
-const farRoofG=(()=>{ const sh=new THREE.Shape(); sh.moveTo(-3.3,0); sh.lineTo(3.3,0); sh.lineTo(0,2.6); sh.lineTo(-3.3,0); const g=new THREE.ExtrudeGeometry(sh,{depth:6.2,bevelEnabled:false}); g.translate(0,3.9,-3.1); return g; })();
-const farRuinG=(()=>{ const g=new THREE.BoxGeometry(5.5,2.2,5); g.translate(0,1.1,0); return g; })();
-const mkFar=(g,c)=>{ const m=new THREE.InstancedMesh(g,new THREE.MeshLambertMaterial({color:c}),slots.length); m.count=0; m.frustumCulled=false; m.castShadow=true; scene.add(m); return m; };
-const farBody=mkFar(farBodyG,0xffffff), farRoof=mkFar(farRoofG,0xffffff), farRuin=mkFar(farRuinG,0x8f8c84);
-const PICKABLE=[...Object.values(near),farBody,farRuin];
-for(const m of [...PICKABLE,farRoof]) m.userData.arr=[];
+// every house has a detailed model (near, casts shadows) and a lighter one (far); zombies use the grey texture
+const HM={}; const PICKABLE=[];
+function hm(tag,name,n,opt){ const m=inst(name,n,opt); m.userData.arr=[]; HM[tag]=m; PICKABLE.push(m); }
+for(const v of ["A","B"]) for(const c of COLORS){ const k=`home_${v}_${c}`, n=slots.filter(s=>s.key===k).length;
+  hm("nh"+k,k,n,{receive:true}); hm("fh"+k,k+"_lo",n,{shadow:false}); hm("nz"+k,k,n,{receive:true,material:GREY}); hm("fz"+k,k+"_lo",n,{shadow:false,material:GREY}); }
+for(const k of ["destroyed","stage_B","stage_C"]){ const n=slots.filter(s=>s.ruin===k).length; hm("nr"+k,k,n,{receive:true}); hm("fr"+k,k+"_lo",n,{shadow:false}); }
 // zombie overgrowth + human yard props (only near the camera)
-const zBushA=inst("Bush_2_A",1600,{shadow:false}), zBushB=inst("Bush_4_A",1600,{shadow:false});
+const zBushA=inst("Bush_2_A",zSlots.length*3+8,{shadow:false}), zBushB=inst("Bush_4_A",zSlots.length*3+8,{shadow:false});
 const yBarrel=inst("barrel",300), yCrate=inst("crate_A_big",300), ySack=inst("sack",300,{shadow:false}), yLumber=inst("resource_lumber",200);
-const WHITE=col(0xffffff), TINT_Z=col(0xb4d68a), TINT_ZB=new THREE.Color(.7,1,.45), WALL_C=col(0xf1e6cf), WALL_Z=col(0xb9c79a);
-const LOD_NEAR=150;
+const WHITE=col(0xffffff), TINT_Z=col(0xb4d68a), TINT_ZB=new THREE.Color(.62,1.1,.38), WALL_C=col(0xf1e6cf), WALL_Z=col(0xb9c79a);
+const LOD_NEAR=125;
 let housesDirty=true, lodCam=new THREE.Vector3(1e9,0,0), lodNext=0;
 const _c=new THREE.Color(), _lv=new THREE.Vector3();
 function rebuildHouses(){
-  const all=[...PICKABLE,farRoof,zBushA,zBushB,yBarrel,yCrate,ySack,yLumber];
+  const all=[...PICKABLE,zBushA,zBushB,yBarrel,yCrate,ySack,yLumber];
   for(const m of all){ m.count=0; if(m.userData.arr) m.userData.arr.length=0; }
   const cp=camera.position;
   for(const s of slots){
-    const isNear=Math.hypot(s.x-cp.x,s.z-cp.z,cp.y)<LOD_NEAR;
-    if(isNear){
-      if(s.state==="r"){ const m=near[s.ruin]; m.userData.arr.push(s); put(m,s.mR,WHITE); }
-      else { const m=near[s.key]; m.userData.arr.push(s); put(m,s.state==="h"?s.mH:s.mZ,s.state==="h"?WHITE:TINT_Z);
-        const sd=rng(Math.floor(s.seed*1e6)), q=(a,b)=>a+(b-a)*sd(), cy=Math.cos(s.yaw), sy=Math.sin(s.yaw), at=(lx,lz)=>[s.x+lx*cy+lz*sy, s.z-lx*sy+lz*cy];
-        if(s.state==="z"){ for(let k=0;k<4;k++){ const roof=k>2, [bx,bz]=roof?at(q(-1.8,1.8),q(-1.5,1.5)):at((k===0?-1:1)*q(2.4,3.1),q(-2.6,2.6)); put(k%2?zBushA:zBushB,M4(bx,roof?s.h*q(.62,.86):0,bz,0,q(0,6),0,roof?q(.8,1.2):q(1,1.6),TMP),TINT_ZB); } }
-        else { const [px,pz]=at(3.5,q(-2,2)); const t=sd(); if(t<.3) put(yBarrel,M4(px,0,pz,0,q(0,6),0,1,TMP)); else if(t<.55) put(yCrate,M4(px,0,pz,0,q(0,6),0,1,TMP)); else if(t<.7) put(ySack,M4(px,0,pz,0,q(0,6),0,1.5,TMP)); else if(t<.82) put(yLumber,M4(px,0,pz,0,s.yaw+1.57,0,.9,TMP)); }
-      }
-    } else if(s.state==="r"){ farRuin.userData.arr.push(s); put(farRuin,s.mR); }
-    else { const z=s.state==="z"; farBody.userData.arr.push(s); put(farBody,z?s.mZ:s.mF,z?WALL_Z:WALL_C); put(farRoof,z?s.mZ:s.mF,z?_c.copy(ROOF_C[s.ci]).multiply(TINT_Z):ROOF_C[s.ci]); }
+    const nf=Math.hypot(s.x-cp.x,s.z-cp.z,cp.y)<LOD_NEAR?"n":"f";
+    if(s.state==="r"){ const m=HM[nf+"r"+s.ruin]; m.userData.arr.push(s); put(m,s.mR); continue; }
+    const m=HM[nf+s.state+s.key]; m.userData.arr.push(s); put(m,s.state==="h"?s.mH:s.mZ);
+    const sd=rng(Math.floor(s.seed*1e6)), q=(a,b)=>a+(b-a)*sd(), cy=Math.cos(s.yaw), sy=Math.sin(s.yaw), at=(lx,lz)=>[s.x+lx*cy+lz*sy, s.z-lx*sy+lz*cy];
+    if(s.state==="z"){ for(let k=0;k<5;k++){ const roof=k>2, [bx,bz]=roof?at(q(-1.8,1.8),q(-1.6,1.6)):at((k===0?-1:1)*q(2.3,2.9),q(-2.6,2.6)); put(k%2?zBushA:zBushB,M4(bx,roof?s.h*q(.6,.84):0,bz,0,q(0,6),0,roof?q(.9,1.4):q(1.1,1.8),TMP),TINT_ZB); } }
+    else if(nf==="n"){ const [px,pz]=at(3.5,q(-2,2)); const t=sd(); if(t<.3) put(yBarrel,M4(px,0,pz,0,q(0,6),0,1,TMP)); else if(t<.55) put(yCrate,M4(px,0,pz,0,q(0,6),0,1,TMP)); else if(t<.7) put(ySack,M4(px,0,pz,0,q(0,6),0,1.5,TMP)); else if(t<.82) put(yLumber,M4(px,0,pz,0,s.yaw+1.57,0,.9,TMP)); }
   }
   flush(...all); lodCam.copy(cp); housesDirty=false;
 }
@@ -484,7 +497,7 @@ canvas.addEventListener("pointerup",e=>{ if(!down||Math.hypot(e.clientX-down[0],
   const s=h.object.userData.arr[h.instanceId]; if(!s) return; const o=s.owner;
   if(!o) showPop("🏚 Пустые руины<br><span style='font-size:13px'>ждут нового жителя</span>");
   else if(o.camp==="h") showPop(`🧑 Здесь живёт человек<br><b>@житель_${o.id}</b><br><span style='font-size:13px'>дом восстановлен</span>`);
-  else showPop(`🧟 Здесь живёт зомби<br><b>@житель_${o.id}</b><br><span style='font-size:13px'>дом зарос</span>`); });
+  else showPop(`🧟 Здесь живёт зомби<br><b>@житель_${o.id}</b><br><span style='font-size:13px'>дом посерел и зарос</span>`); });
 
 // ================= loop =================
 const clock=new THREE.Clock(); let dark=0;
