@@ -387,36 +387,24 @@ R=rng(88); addBirds(14,0x2a2a2e,ZC,34,30); addBirds(9,0xf2f0e8,HC,30,26);
 
 // ================= walkers: animated characters (Quaternius Zombie Apocalypse Kit, CC0) =================
 const CH={h:[],z:[],g:[]};
-// girls: Lis and Sam in lighter, brighter colours; Lis also gets hair (bob + ponytail on the head bone)
+// girls: Lis as in the pack, Sam in a lighter outfit with a pink beanie
 const GIRLS=[
-  {f:"h1",hair:0x6b3a1e,map:{225385:"6b3a1e",bd8e30:"ff8fb8",466469:"9fd3f5",b5b999:"ffffff",632125:"f6a6c8","4c3a21":"d9b08c"}},
-  {f:"h1",hair:0xf0c36a,map:{225385:"f0c36a",bd8e30:"8fe6c6",466469:"f4f0ff",b5b999:"c9b6f2",632125:"b9a4f0","4c3a21":"e9c9a8"}},
-  {f:"h3",map:{ac741d:"ff7fae","504c43":"f3e3c8","923c12":"ff9f80",af6c1c:"ffb6c9",333333:"f0eeee"}},
-  {f:"h3",map:{ac741d:"8fe3d0","504c43":"cdb8f0","923c12":"ffd166",af6c1c:"a8dcff",333333:"fafafa"}}];
+  {f:"h1",map:{}},
+  {f:"h3",map:{ac741d:"ff7fae","504c43":"f3e3c8","923c12":"ff9f80",af6c1c:"ffb6c9",333333:"f0eeee"}}];
 function recolor(tex,map){ const im=tex.image, c=document.createElement("canvas"); c.width=im.width; c.height=im.height; const x=c.getContext("2d"); x.drawImage(im,0,0);
   const d=x.getImageData(0,0,c.width,c.height), px=d.data, pairs=Object.entries(map).map(([a,b])=>[parseInt(a,16),parseInt(b,16)]);
   for(let i=0;i<px.length;i+=4){ for(const [a,b] of pairs){ if(Math.abs(px[i]-(a>>16))<4&&Math.abs(px[i+1]-(a>>8&255))<4&&Math.abs(px[i+2]-(a&255))<4){ px[i]=b>>16; px[i+1]=b>>8&255; px[i+2]=b&255; break; } } }
   x.putImageData(d,0,0); const t=new THREE.CanvasTexture(c); t.flipY=false; t.colorSpace=THREE.SRGBColorSpace; t.magFilter=tex.magFilter; t.minFilter=tex.minFilter; return t; }
-function hairGroup(color){ const g=new THREE.Group(), m=new THREE.MeshLambertMaterial({color,flatShading:true}), S=(...a)=>new THREE.SphereGeometry(1,10,8,...a);
-  const add=(geo,p,sc,r=[0,0,0])=>{ const o=new THREE.Mesh(geo,m); o.position.set(...p); o.scale.set(...sc); o.rotation.set(...r); o.castShadow=true; g.add(o); };
-  add(S(0,Math.PI*2,0,1.15),[0,.29,.02],[.31,.34,.34]);                       // top
-  add(S(Math.PI-.3,Math.PI+.6,0,2.2),[0,.29,0],[.31,.34,.34]);           // back + sides
-  for(const sx of [-1,1]) add(new THREE.BoxGeometry(1,1,1),[sx*.26,.3,.1],[.08,.34,.18],[0,0,sx*-.06]); // side locks
-  for(let k=-2;k<=2;k++) add(new THREE.ConeGeometry(1,1,4),[k*.09,.55,.29],[.07,.15,.05],[2.3,0,k*.12]);     // fringe
-  add(new THREE.TorusGeometry(1,.35,5,8),[0,.45,-.32],[.06,.06,.06],[.5,0,0]);                                  // hair tie
-  add(S(),[0,.32,-.41],[.11,.18,.1],[.5,0,0]); add(S(),[0,.15,-.44],[.085,.14,.08],[.15,0,0]);                 // ponytail
-  return g; }
 { const gl=new GLTFLoader();
   const files=Object.fromEntries(await Promise.all(["h1","h2","h3","h4","z1","z2","z3","z4"].map(k=>gl.loadAsync(`assets/${k}.glb`).then(g=>[k,g]))));
   const prep=(g,k,variant)=>{ let mat=null, hgt=.1; const bp=new THREE.Vector3(); g.scene.updateMatrixWorld(true); g.scene.traverse(o=>{ if(o.isBone) hgt=Math.max(hgt,o.getWorldPosition(bp).y); });
     const scene=variant?SkeletonUtils.clone(g.scene):g.scene;
-    scene.traverse(o=>{ if(o.isMesh){ if(!mat){ mat=new THREE.MeshLambertMaterial({map:variant?recolor(o.material.map,variant.map):o.material.map}); } o.material=mat; o.castShadow=true; o.frustumCulled=false; } });
-    return {scene,clip:g.animations[0],scale:(k[0]==="z"?2.8:2.7)/hgt,hair:variant&&variant.hair}; };
+    scene.traverse(o=>{ if(o.isMesh){ if(!mat){ mat=new THREE.MeshLambertMaterial({map:variant&&Object.keys(variant.map).length?recolor(o.material.map,variant.map):o.material.map}); } o.material=mat; o.castShadow=true; o.frustumCulled=false; } });
+    return {scene,clip:g.animations[0],scale:(k[0]==="z"?2.8:2.7)/hgt}; };
   for(const k of ["h2","h4"]) CH.h.push(prep(files[k],k));
   for(const k of ["z1","z2","z3","z4"]) CH.z.push(prep(files[k],k));
   for(const v of GIRLS) CH.g.push(prep(files[v.f],v.f,v)); }
 function figure(z){ const pool=z?CH.z:(Math.random()<.5?CH.g:CH.h); const src=pool[Math.floor(Math.random()*pool.length)]; const g=SkeletonUtils.clone(src.scene); g.scale.setScalar(src.scale*(.92+Math.random()*.16));
-  if(src.hair!=null){ const head=g.getObjectByName("Head"); if(head) head.add(hairGroup(src.hair)); }
   const mixer=new THREE.AnimationMixer(g); mixer.clipAction(src.clip).play(); mixer.setTime(Math.random()*1.3); return {g,mixer}; }
 const walkers=[];
 function nodeOk(camp,x,z,rad){ const c=camp==="h"?HC:ZC; if(Math.hypot(x-c.x,z-c.y)>rad-3) return false; if(inRiver(x,z,5)||inLake(x,z,5)) return false; return camp==="h"? x<riverX(z)-6 : x>riverX(z)+6; }
