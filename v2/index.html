@@ -467,7 +467,7 @@ const LABEL_BG={h:"#3f5a30",z:"#56602a",f:"#7a3f22","":"#4a3020"};
 const LABELS=[{t:"🧑 Лагерь людей",c:"h",p:new THREE.Vector3(HC.x+4,26,HC.y+5)},{t:"🏥 Больница",c:"",p:new THREE.Vector3(HC.x-6,20,HC.y-12)},{t:"🧟 Лагерь зомби",c:"z",p:new THREE.Vector3(ZC.x,30,ZC.y-8)},{t:"🪦 Старый склеп",c:"",p:new THREE.Vector3(ZC.x,20,ZC.y-8)},{t:"⚔️ Мост · линия фронта",c:"f",p:new THREE.Vector3(riverX(0),8,0)},{t:"Озеро",c:"",p:new THREE.Vector3(LAKE.x,5,LAKE.z),fog:true},{t:"Горы",c:"",p:new THREE.Vector3(-40,150,-420)}]
   .map(l=>{ const a=signTex(l.t,LABEL_BG[l.c],l.c==="z"?"#a8d050":"#c9a04a",true), b=l.fog?signTex("??? в тумане","#777","#999",true):null;
     const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:a.t,depthTest:false,depthWrite:false,sizeAttenuation:false,transparent:true})); sp.center.set(.5,0); const H=.026; sp.scale.set(H*a.ar,H,1); sp.position.copy(l.p); sp.renderOrder=20; scene.add(sp); return {...l,sp,a,b,H,cur:"a"}; });
-const signCache=new Map(); const YOU=new Set(); let nickOf=id=>"@житель_"+id;
+const signCache=new Map(); const YOU=new Set(); const NICK=new Map(); let nickOf=id=>NICK.has(id)?"@"+NICK.get(id):"@житель_"+id;
 function nameTexFor(o){ const key=o.camp+o.id; if(!signCache.has(key)){ if(signCache.size>400){ const k=signCache.keys().next().value; signCache.get(k).t.dispose(); signCache.delete(k); } signCache.set(key,YOU.has(o.id)?Object.assign(signTex("@ТВОЙ НИК","#f6c62e","#ffffff",true,"#2a2118"),{h:.036}):signTex(nickOf(o.id),o.camp==="z"?"#46551e":"#4a3020",o.camp==="z"?"#a8d050":"#c9a04a",false)); } return signCache.get(key); }
 const namePool=[]; for(let k=0;k<30;k++){ const sp=new THREE.Sprite(new THREE.SpriteMaterial({depthWrite:false,transparent:true,sizeAttenuation:false})); sp.center.set(.5,0); sp.visible=false; sp.renderOrder=19; scene.add(sp); namePool.push(sp); }
 let namesOn=true, nameTick=0; const shown=new Map();
@@ -508,8 +508,8 @@ canvas.addEventListener("pointerup",e=>{ if(!down||Math.hypot(e.clientX-down[0],
   if(housesDirty) rebuildHouses(); const h=ray.intersectObjects(PICKABLE,false)[0]; if(!h) return;
   const s=h.object.userData.arr[h.instanceId]; if(!s) return; const o=s.owner;
   if(!o) showPop("🏚 Пустые руины<br><span style='font-size:13px'>ждут нового жителя</span>");
-  else if(o.camp==="h") showPop(`🧑 Здесь живёт человек<br><b>@житель_${o.id}</b><br><span style='font-size:13px'>дом восстановлен</span>`);
-  else showPop(`🧟 Здесь живёт зомби<br><b>@житель_${o.id}</b><br><span style='font-size:13px'>дом посерел и зарос</span>`); });
+  else if(o.camp==="h") showPop(`🧑 Здесь живёт человек<br><b>${nickOf(o.id)}</b><br><span style='font-size:13px'>дом восстановлен</span>`);
+  else showPop(`🧟 Здесь живёт зомби<br><b>${nickOf(o.id)}</b><br><span style='font-size:13px'>дом посерел и зарос</span>`); });
 
 // ================= loop =================
 const clock=new THREE.Clock(); let dark=0;
@@ -556,7 +556,26 @@ function frame(){
 addEventListener("resize",()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
 
 const QS=new URLSearchParams(location.search);
-if(QS.has("film")){ join("h",1); join("z",1); } else { join("h",160); join("z",130); }
+// residents come from the public showcase sheet (filled from the private base by IMPORTRANGE)
+const SHEET_CSV="https://docs.google.com/spreadsheets/d/14D66yHPtniZ-5LcSD9iIjbICffpNgFjT7aQACWJTIEo/gviz/tq?tqx=out:csv&sheet=city";
+function parseCSV(t){ const rows=[]; let row=[], cur="", q=false; for(let i=0;i<t.length;i++){ const c=t[i];
+  if(q){ if(c==='"'&&t[i+1]==='"'){ cur+='"'; i++; } else if(c==='"') q=false; else cur+=c; }
+  else if(c==='"') q=true; else if(c===','){ row.push(cur); cur=""; } else if(c==='\n'){ row.push(cur); rows.push(row); row=[]; cur=""; } else if(c!=='\r') cur+=c; }
+  if(cur||row.length){ row.push(cur); rows.push(row); } return rows; }
+let lastSig="";
+async function loadResidents(){
+  try{ const r=await fetch(SHEET_CSV+"&t="+Date.now(),{cache:"no-store"}); if(!r.ok) return; const rows=parseCSV(await r.text());
+    const seen=new Set(), list=[];
+    for(const [n,c] of rows){ const nick=(n||"").trim().replace(/^@+/,""), camp=(c||"").trim().toLowerCase(); if(!nick||nick==="nick"||seen.has(nick.toLowerCase())) continue;
+      const k=camp.startsWith("зомб")?"z":camp.startsWith("чел")?"h":null; if(!k) continue; seen.add(nick.toLowerCase()); list.push([nick,k]); }
+    const sig=list.map(x=>x.join(":")).join("|"); if(sig===lastSig) return; lastSig=sig;
+    for(const sl of slots){ if(sl.owner){ sl.owner=null; setState(sl,"r"); } } H_.length=0; Z_.length=0; NICK.clear(); signCache.clear(); shown.clear(); nextId=1;
+    for(const [nick,k] of list){ NICK.set(nextId,nick); if(place(k,nextId)) nextId++; }
+    refresh(); nameTick=0;
+  }catch(e){ console.warn("sheet",e); } }
+if(QS.has("film")){ join("h",1); join("z",1); }
+else if(QS.has("demo")){ join("h",160); join("z",130); }
+else { for(const id of ["addH","addZ","openB"]) document.getElementById(id).style.display="none"; refresh(); await loadResidents(); setInterval(loadResidents,60000); }
 
 // ================= film mode (add ?film to the address): the camera flies the reel scenario by itself =================
 const FILM={on:QS.has("film"),t:0,run:false,frozen:QS.has("ft")};
